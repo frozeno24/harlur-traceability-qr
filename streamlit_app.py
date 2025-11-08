@@ -13,7 +13,7 @@ from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
 DB_PATH = "data_produksi.db"
 os.makedirs("qr_codes", exist_ok=True)
 
-st.set_page_config(page_title="Harlur Coffee QR Traceability", page_icon="☕", layout="wide")
+st.set_page_config(page_title="Harlur Coffee QR Traceability", layout="wide")
 
 # ========== DATABASE ==========
 conn = sqlite3.connect(DB_PATH)
@@ -96,15 +96,40 @@ if menu == "Tambah Data":
             else:
                 st.warning("Harap isi semua kolom.")
 
-# ========== LIHAT DATA ==========
+# ===================== LIHAT DATA =====================
 elif menu == "Lihat Data":
-    st.title("Data Produksi")
+    st.subheader("📋 Daftar Data Produksi")
+
     df = pd.read_sql_query("SELECT * FROM produksi", conn)
+
     if not df.empty:
-        df["Link QR"] = df["batch_id"].apply(lambda x: f"https://harlur-trace.streamlit.app/?batch_id={x}")
-        st.dataframe(df)
+        # Tambahkan kolom path QR
+        df["QR_Code_Path"] = df["batch_id"].apply(lambda x: f"qr_codes/{x}.png")
+
+        # Fungsi untuk mengubah file gambar jadi tag <img> base64
+        def make_img_tag(path):
+            if os.path.exists(path):
+                with open(path, "rb") as f:
+                    img_b64 = base64.b64encode(f.read()).decode()
+                    return f'<img src="data:image/png;base64,{img_b64}" width="100">'
+            else:
+                return "❌ Tidak ditemukan"
+
+        # Tambahkan kolom QR_Code yang berisi gambar
+        df["QR_Code"] = df["QR_Code_Path"].apply(make_img_tag)
+
+        # Hapus kolom path agar tabel lebih rapi
+        df_display = df[["batch_id", "tanggal", "pic", "tempat_produksi", "varian_produksi", "QR_Code"]]
+        df_display.columns = ["Batch ID", "Tanggal", "PIC", "Tempat Produksi", "Varian Produksi", "QR Code"]
+
+        # Tampilkan tabel dengan gambar QR di dalamnya
+        st.markdown(
+            df_display.to_html(escape=False, index=False),
+            unsafe_allow_html=True
+        )
     else:
-        st.info("Belum ada data yang tersimpan.")
+        st.info("Belum ada data produksi tersimpan.")
+
 
 # ========== QR SCANNER REALTIME ==========
 elif menu == "Scan QR Realtime":
