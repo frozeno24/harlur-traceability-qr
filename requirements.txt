@@ -5,3 +5,4 @@ qrcode
 reportlab
 opencv-python-headless
 numpy
+streamlit-webrtc
