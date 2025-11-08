@@ -60,15 +60,32 @@ def tambah_data(batch_id, tanggal, pic, tempat, varian):
     img_qr.save(qr_path)
     return qr_path, link
 
+
 def get_batch_info(batch_id):
     query = "SELECT * FROM produksi WHERE batch_id = ?"
     df = pd.read_sql_query(query, conn, params=(batch_id,))
     return df if not df.empty else None
 
+# ========== AUTO ROUTE HANDLER ==========
+query_params = st.query_params
+if "batch_id" in query_params:
+    # Jika ada batch_id di URL, langsung buka halaman Consumer View
+    st.session_state["menu_override"] = "Consumer View"
+    st.session_state["batch_id_param"] = query_params["batch_id"]
+else:
+    st.session_state["menu_override"] = None
+
 # ========== SIDEBAR ==========
 st.sidebar.image("logo_harlur.png", width=130)
 st.sidebar.markdown("### Harlur Coffee Traceability")
-menu = st.sidebar.radio("Navigasi", ["Tambah Data", "Lihat Data", "Scan QR Realtime", "Consumer View"])
+
+default_menu = st.session_state.get("menu_override", None)
+menu_list = ["Tambah Data", "Lihat Data", "Scan QR Realtime", "Consumer View"]
+menu = st.sidebar.radio(
+    "Navigasi",
+    menu_list,
+    index=menu_list.index(default_menu) if default_menu else 0
+)
 
 # ========== TAMBAH DATA ==========
 if menu == "Tambah Data":
@@ -95,17 +112,15 @@ if menu == "Tambah Data":
             else:
                 st.warning("Harap isi semua kolom.")
 
-# ===================== LIHAT DATA =====================
+# ========== LIHAT DATA ==========
 elif menu == "Lihat Data":
     st.subheader("📋 Daftar Data Produksi")
 
     df = pd.read_sql_query("SELECT * FROM produksi", conn)
 
     if not df.empty:
-        # Tambahkan kolom path QR
         df["QR_Code_Path"] = df["batch_id"].apply(lambda x: f"qr_codes/{x}.png")
 
-        # Fungsi untuk mengubah file gambar jadi tag <img> base64
         def make_img_tag(path):
             if os.path.exists(path):
                 with open(path, "rb") as f:
@@ -114,21 +129,13 @@ elif menu == "Lihat Data":
             else:
                 return "❌ Tidak ditemukan"
 
-        # Tambahkan kolom QR_Code yang berisi gambar
         df["QR_Code"] = df["QR_Code_Path"].apply(make_img_tag)
-
-        # Hapus kolom path agar tabel lebih rapi
         df_display = df[["batch_id", "tanggal", "pic", "tempat_produksi", "varian_produksi", "QR_Code"]]
         df_display.columns = ["Batch ID", "Tanggal", "PIC", "Tempat Produksi", "Varian Produksi", "QR Code"]
 
-        # Tampilkan tabel dengan gambar QR di dalamnya
-        st.markdown(
-            df_display.to_html(escape=False, index=False),
-            unsafe_allow_html=True
-        )
+        st.markdown(df_display.to_html(escape=False, index=False), unsafe_allow_html=True)
     else:
         st.info("Belum ada data produksi tersimpan.")
-
 
 # ========== QR SCANNER REALTIME ==========
 elif menu == "Scan QR Realtime":
@@ -177,8 +184,9 @@ elif menu == "Consumer View":
     st.title("Informasi Produk Harlur Coffee")
 
     query_params = st.query_params
-    if "batch_id" in query_params:
-        batch_id = query_params["batch_id"]
+    batch_id = query_params.get("batch_id") or st.session_state.get("batch_id_param")
+
+    if batch_id:
         data = get_batch_info(batch_id)
         if data is not None:
             info = data.iloc[0]
