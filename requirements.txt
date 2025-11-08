@@ -1,0 +1,7 @@
+streamlit>=1.38.0
+pandas
+pillow
+qrcode
+reportlab
+opencv-python-headless
+numpy
