@@ -39,7 +39,7 @@ def tambah_data(batch_id, tanggal, pic, tempat, varian):
     conn.commit()
 
     # Generate QR code (link to consumer view)
-    link = f"https://harlur-trace.streamlit.app/?batch_id={batch_id}"
+    link = f"https://harlur-traceability.streamlit.app/?batch_id={batch_id}"
     qr = qrcode.QRCode(box_size=10, border=2)
     qr.add_data(link)
     qr.make(fit=True)
@@ -59,7 +59,6 @@ def tambah_data(batch_id, tanggal, pic, tempat, varian):
     qr_path = f"qr_codes/{batch_id}.png"
     img_qr.save(qr_path)
     return qr_path, link
-
 
 def get_batch_info(batch_id):
     query = "SELECT * FROM produksi WHERE batch_id = ?"
