@@ -156,10 +156,26 @@ if LOGO_PATH.exists():
     st.sidebar.image(str(LOGO_PATH), width=130)
 st.sidebar.markdown("### Harlur Coffee Traceability")
 
-menu = st.sidebar.radio("Navigasi", [
+# 🆕 Perbaikan navigasi otomatis dari query params
+query_params = st.query_params
+available_menus = [
     "Tambah Data", "Lihat Data", "Edit / Hapus Data",
     "Scan QR", "Log Aktivitas", "Consumer View"
-])
+]
+
+# Default menu
+default_menu = "Tambah Data"
+
+# Jika URL mengandung menu= atau batch_id=, arahkan otomatis
+if "menu" in query_params:
+    requested_menu = query_params["menu"]
+    if requested_menu in available_menus:
+        default_menu = requested_menu
+elif "batch_id" in query_params:
+    default_menu = "Consumer View"
+
+# Sidebar navigation
+menu = st.sidebar.radio("Navigasi", available_menus, index=available_menus.index(default_menu))
 
 
 # ---------- TAMBAH DATA ----------
