@@ -290,7 +290,10 @@ elif menu == "Lihat Data":
         st.download_button("📦 Ekspor ke CSV", df.to_csv(index=False).encode("utf-8"),
                            "data_produksi.csv", "text/csv")
         selected_pdf = st.selectbox("Pilih Batch untuk Ekspor PDF", df["batch_id"].tolist())
-        
+
+    else:
+        st.info("Belum ada data produksi.")
+
     if st.button("📄 Ekspor ke PDF"):
         pdf_path = export_pdf(selected_pdf)
         if pdf_path and pdf_path.exists():
@@ -301,10 +304,7 @@ elif menu == "Lihat Data":
                     file_name=f"{selected_pdf}.pdf",
                     mime="application/pdf"
                 )
-
-    else:
-        st.info("Belum ada data produksi.")
-
+                
 # ---------- SCAN QR ----------
 elif menu == "Scan QR":
     st.subheader("📸 Scan QR Code untuk Menampilkan Data Produksi")
