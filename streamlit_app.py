@@ -23,80 +23,6 @@ import time  # 🆕 untuk efek progress spinner
 # ========== KONFIGURASI DASAR ==========
 st.set_page_config(page_title="Harlur Coffee QR Traceability", layout="wide")
 
-# ======== UI STYLING ========
-st.markdown("""
-    <style>
-    /* Umum */
-    body {
-        color: #000000;
-        background-color: #FFFFFF;
-        font-family: 'Helvetica Neue', sans-serif;
-    }
-
-    /* Sidebar */
-    [data-testid="stSidebar"] {
-        background-color: #000000 !important;
-    }
-    [data-testid="stSidebar"] * {
-        color: #FFFFFF !important;
-    }
-
-    /* Judul */
-    h1, h2, h3 {
-        color: #000000;
-        font-weight: 600;
-        letter-spacing: -0.5px;
-    }
-
-    /* Tombol */
-    div.stButton > button {
-        background-color: #000000;
-        color: #FFFFFF;
-        border-radius: 8px;
-        height: 2.5em;
-        font-weight: 500;
-        border: none;
-    }
-    div.stButton > button:hover {
-        background-color: #222222;
-        color: #FFFFFF;
-    }
-
-    /* Form input */
-    .stTextInput, .stDateInput, .stSelectbox {
-        background-color: #F9F9F9 !important;
-        border-radius: 6px;
-    }
-
-    /* Table styling */
-    table {
-        border-collapse: collapse;
-        width: 100%;
-    }
-    th {
-        background-color: #000000;
-        color: white;
-        font-weight: 600;
-        padding: 8px;
-    }
-    td {
-        padding: 6px;
-    }
-    tr:nth-child(even) {
-        background-color: #F7F7F7;
-    }
-
-    /* Toast position fix */
-    [data-testid="stToastContainer"] {
-        bottom: 2rem !important;
-        right: 1rem !important;
-    }
-
-    /* Header bar removal (Streamlit default) */
-    header[data-testid="stHeader"] {display: none;}
-    </style>
-""", unsafe_allow_html=True)
-
 # Gunakan direktori kerja yang writable (misalnya /tmp di Streamlit Cloud)
 BASE_DIR = Path(tempfile.gettempdir()) / "harlur_traceability"
 DATA_DIR = BASE_DIR / "app_data"
@@ -226,15 +152,9 @@ def status_expired(expired_date_str):
         return "⏳ Tidak valid"
 
 # ========== SIDEBAR ==========
-with st.sidebar:
-    if LOGO_PATH.exists():
-        st.image(str(LOGO_PATH), width=150)
-    st.markdown(
-        "<h2 style='color:white; font-weight:600;'>Harlur Coffee</h2>"
-        "<p style='color:#BFBFBF; font-size:14px;'>Traceability System</p>",
-        unsafe_allow_html=True
-    )
-    st.markdown("---", unsafe_allow_html=True)
+if LOGO_PATH.exists():
+    st.sidebar.image(str(LOGO_PATH), width=130)
+st.sidebar.markdown("### Harlur Coffee Traceability")
 
 # 🆕 Perbaikan navigasi otomatis dari query params
 query_params = st.query_params
