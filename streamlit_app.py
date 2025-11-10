@@ -161,6 +161,7 @@ menu = st.sidebar.radio("Navigasi", [
     "Scan QR", "Log Aktivitas", "Consumer View"
 ])
 
+
 # ---------- TAMBAH DATA ----------
 if menu == "Tambah Data":
     st.title("Tambah Data Produksi")
@@ -190,6 +191,27 @@ if menu == "Tambah Data":
                     st.toast(f"Data batch {batch_id} berhasil ditambahkan.", icon="✅")  # 🆕 toast
             else:
                 st.warning("Harap isi semua kolom.")
+
+# ---------- LIHAT DATA ----------
+elif menu == "Lihat Data":
+    st.subheader("📋 Daftar Data Produksi")
+    df = pd.read_sql_query("SELECT * FROM produksi ORDER BY id DESC", conn)
+    if not df.empty:
+        df["QR_Code"] = df["batch_id"].apply(
+            lambda x: f'<img src="data:image/png;base64,{base64.b64encode(open(QR_DIR / f"{x}.png","rb").read()).decode()}" width="70">'
+            if (QR_DIR / f"{x}.png").exists() else "❌"
+        )
+        df["Status"] = df["expired_date"].apply(status_expired)
+        df_display = df[["timestamp", "batch_id", "tanggal", "pic", "tempat_produksi",
+                         "varian_produksi", "lokasi_gudang", "expired_date", "Status", "updated_at", "QR_Code"]]
+        df_display.columns = ["Timestamp", "Batch ID", "Tanggal", "PIC", "Tempat", "Varian",
+                              "Gudang", "Kedaluwarsa", "Status", "Last Updated", "QR Code"]
+
+        st.markdown(df_display.to_html(escape=False, index=False), unsafe_allow_html=True)
+        st.download_button("📦 Ekspor ke CSV", df.to_csv(index=False).encode("utf-8"),
+                           "data_produksi.csv", "text/csv")
+    else:
+        st.info("Belum ada data produksi.")
 
 # ---------- SCAN QR ----------
 elif menu == "Scan QR":
