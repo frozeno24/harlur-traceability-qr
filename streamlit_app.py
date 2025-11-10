@@ -1,13 +1,13 @@
 # =========================================================
 # HARLUR COFFEE - QR TRACEABILITY SYSTEM
 # Deployment-safe version (Streamlit Cloud Compatible)
-# Added: Scan → Show Data, Unique Batch ID Validation, Toast/Progress
 # Last Updated: 2025-11-10
 # =========================================================
 
 import streamlit as st
 import sqlite3
 import qrcode
+import numpy as np
 from PIL import Image
 import os
 import pandas as pd
@@ -304,44 +304,49 @@ elif menu == "Lihat Data":
                     file_name=f"{selected_pdf}.pdf",
                     mime="application/pdf"
                 )
-                
+
 # ---------- SCAN QR ----------
 elif menu == "Scan QR":
-    st.subheader("📸 Scan QR Code untuk Menampilkan Data Produksi")
+    st.subheader("📸 Scan QR Code Realtime atau Upload Gambar")
 
-    class QRScanner(VideoProcessorBase):
-        def __init__(self): self.qr_result = None
-        def recv(self, frame):
-            img = frame.to_ndarray(format="bgr24")
-            data, _, _ = cv2.QRCodeDetector().detectAndDecode(img)
-            if data: self.qr_result = data
-            return frame
+    # Pilihan metode scan
+    metode = st.radio("Pilih Metode Pemindaian", ["Kamera", "Upload Gambar"])
 
-    ctx = webrtc_streamer(key="scanner", mode=WebRtcMode.SENDRECV,
-                          video_processor_factory=QRScanner,
-                          media_stream_constraints={"video": True, "audio": False})
+    # --- OPSI 1: SCAN DARI KAMERA ---
+    if metode == "Kamera":
+        class QRScanner(VideoProcessorBase):
+            def __init__(self): self.qr_result = None
+            def recv(self, frame):
+                img = frame.to_ndarray(format="bgr24")
+                data, _, _ = cv2.QRCodeDetector().detectAndDecode(img)
+                if data: self.qr_result = data
+                return frame
 
-    if ctx.video_processor and ctx.video_processor.qr_result:
-        qr_data = ctx.video_processor.qr_result
-        st.success(f"QR Code Terbaca: {qr_data}")
-        # 🆕 Deteksi apakah mengandung batch_id
-        if "batch_id=" in qr_data:
-            batch_id = qr_data.split("batch_id=")[-1]
-            data = get_batch(batch_id)
-            if data is not None:
-                info = data.iloc[0]
-                st.write(f"### Data Batch {batch_id}")
-                st.write(f"📅 Produksi: {info['tanggal']}")
-                st.write(f"🏭 Tempat: {info['tempat_produksi']}")
-                st.write(f"☕ Varian: {info['varian_produksi']}")
-                st.write(f"📦 Gudang: {info['lokasi_gudang']}")
-                st.write(f"⏳ Kedaluwarsa: {info['expired_date']}")
-                st.markdown(status_expired(info['expired_date']), unsafe_allow_html=True)
-                st.toast(f"Batch {batch_id} ditemukan di database ✅")
+        ctx = webrtc_streamer(
+            key="scanner",
+            mode=WebRtcMode.SENDRECV,
+            video_processor_factory=QRScanner,
+            media_stream_constraints={"video": True, "audio": False}
+        )
+
+        if ctx.video_processor and ctx.video_processor.qr_result:
+            st.success(f"QR Code Terbaca: {ctx.video_processor.qr_result}")
+            st.markdown(f"[🔗 Buka Tautan]({ctx.video_processor.qr_result})")
+
+    # --- OPSI 2: UPLOAD GAMBAR QR ---
+    else:
+        uploaded_qr = st.file_uploader("Unggah Gambar QR (PNG/JPG)", type=["png", "jpg", "jpeg"])
+        if uploaded_qr:
+            img = Image.open(uploaded_qr)
+            img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+            data, _, _ = cv2.QRCodeDetector().detectAndDecode(img_cv)
+
+            if data:
+                st.image(img, caption="QR Terdeteksi", width=200)
+                st.success(f"QR Code Terbaca: {data}")
+                st.markdown(f"[🔗 Buka Tautan]({data})")
             else:
-                st.error("Batch ID tidak ditemukan di database.")
-        else:
-            st.warning("QR tidak berisi informasi batch Harlur Coffee.")
+                st.warning("⚠️ QR tidak dapat dibaca dari gambar ini.")
 
 # ---------- EDIT / HAPUS ----------
 elif menu == "Edit / Hapus Data":
