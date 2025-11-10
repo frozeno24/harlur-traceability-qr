@@ -228,3 +228,68 @@ elif menu == "Scan QR":
                 st.error("Batch ID tidak ditemukan di database.")
         else:
             st.warning("QR tidak berisi informasi batch Harlur Coffee.")
+
+# ---------- EDIT / HAPUS ----------
+elif menu == "Edit / Hapus Data":
+    st.subheader("✏️ Edit atau Hapus Data Produksi")
+    df = pd.read_sql_query("SELECT * FROM produksi", conn)
+    if not df.empty:
+        selected = st.selectbox("Pilih Batch ID", df["batch_id"].tolist())
+        data = get_batch(selected)
+        if data is not None:
+            info = data.iloc[0]
+            tempat = st.text_input("Tempat Produksi", info["tempat_produksi"])
+            varian = st.text_input("Varian Produksi", info["varian_produksi"])
+            gudang = st.text_input("Lokasi Gudang", info["lokasi_gudang"])
+            expired = st.date_input("Tanggal Kedaluwarsa", datetime.strptime(info["expired_date"], "%Y-%m-%d"))
+            colA, colB = st.columns(2)
+            with colA:
+                if st.button("💾 Simpan Perubahan"):
+                    cursor.execute("""
+                        UPDATE produksi
+                        SET tempat_produksi=?, varian_produksi=?, lokasi_gudang=?, expired_date=?, updated_at=?
+                        WHERE batch_id=?
+                    """, (tempat, varian, gudang, str(expired), now_wib(), selected))
+                    conn.commit()
+                    log_activity(f"Edit data batch {selected}")
+                    st.success("Data berhasil diperbarui.")
+            with colB:
+                if st.button("🗑️ Hapus Data"):
+                    delete_batch(selected)
+                    st.warning(f"Data batch {selected} telah dihapus.")
+    else:
+        st.info("Belum ada data untuk diedit.")
+
+# ---------- LOG ----------
+elif menu == "Log Aktivitas":
+    st.subheader("🕒 Riwayat Aktivitas Sistem")
+    logs = pd.read_sql_query("SELECT * FROM log_aktivitas ORDER BY id DESC", conn)
+    if not logs.empty:
+        st.dataframe(logs)
+    else:
+        st.info("Belum ada aktivitas.")
+
+# ---------- CONSUMER VIEW ----------
+elif menu == "Consumer View":
+    st.subheader("Informasi Produk Harlur Coffee")
+    params = st.query_params
+    if "batch_id" in params:
+        batch_id = params["batch_id"]
+        data = get_batch(batch_id)
+        if data is not None:
+            info = data.iloc[0]
+            if LOGO_PATH.exists():
+                st.image(str(LOGO_PATH), width=150)
+            st.write(f"### Varian: {info['varian_produksi']}")
+            st.write(f"📅 Tanggal Produksi: {info['tanggal']}")
+            st.write(f"🏭 Tempat Produksi: {info['tempat_produksi']}")
+            st.write(f"📦 Lokasi Gudang: {info['lokasi_gudang']}")
+            st.write(f"⏳ Kedaluwarsa: {info['expired_date']}")
+            st.markdown(status_expired(info['expired_date']), unsafe_allow_html=True)
+            st.write(f"👤 PIC: {info['pic']}")
+            st.markdown("---")
+            st.info("Terima kasih telah memilih Harlur Coffee!")
+        else:
+            st.error("Data batch tidak ditemukan.")
+    else:
+        st.info("Scan QR Code pada kemasan untuk melihat informasi produk.")
