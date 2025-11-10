@@ -1,0 +1,4 @@
+id,batch_id,tanggal,pic,tempat_produksi,varian_produksi,lokasi_gudang,expired_date,timestamp,updated_at
+3,2,2025-11-10,Hafizh,Bandung,Matcha Latte,Jatinangor,2025-11-05,2025-11-10 21:21:26,2025-11-10 21:21:26
+4,3,2024-10-10,Faqih,Bandung,Aren Latte,Jatinangor,2025-11-16,2025-11-10 21:22:41,2025-11-10 21:22:41
+6,1,2025-11-10,Alya,Jakarta,Americano,Bandung,2026-05-09,2025-11-10 22:52:30,2025-11-10 22:52:30
