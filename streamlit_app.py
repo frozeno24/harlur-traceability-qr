@@ -25,32 +25,24 @@ QR_DIR = "qr_codes"
 os.makedirs(QR_DIR, exist_ok=True)
 
 # ---------- STYLING ----------
-st.set_page_config(
-    page_title="Harlur Coffee QR Traceability",
-    layout="wide",
-    page_icon="logo_harlur.png"  # pakai logo di tab browser
-)
+def get_base64_image(image_path):
+    with open(image_path, "rb") as img_file:
+        return base64.b64encode(img_file.read()).decode()
 
-# Header utama dengan logo
-st.set_page_config(
-    page_title="Harlur Coffee QR Traceability",
-    layout="wide",
-    page_icon="logo_harlur.png"
-)
+logo_base64 = get_base64_image("logo_harlur.png")
 
-# HEADER DENGAN KONTRAS HITAM PUTIH
-header_html = """
+header_html = f"""
 <div style="
-    display: flex;
-    align-items: center;
-    background-color: #000; /* latar hitam */
-    padding: 15px 25px;
-    border-radius: 8px;
+    display:flex;
+    align-items:center;
+    background-color:#000;
+    padding:15px 25px;
+    border-radius:8px;
 ">
-    <img src="./logo_harlur.png" style="width:65px; margin-right:20px; border-radius:8px;">
+    <img src="data:image/png;base64,{logo_base64}" style="width:65px;margin-right:20px;border-radius:8px;">
     <div>
-        <h1 style="color:white; margin-bottom:2px; font-family:Arial, sans-serif;">Harlur Coffee</h1>
-        <h4 style="color:#ccc; margin-top:0; font-weight:normal;">QR Traceability System</h4>
+        <h1 style="color:white;margin-bottom:2px;font-family:Arial, sans-serif;">Harlur Coffee</h1>
+        <h4 style="color:#ccc;margin-top:0;font-weight:normal;">QR Traceability System</h4>
     </div>
 </div>
 """
