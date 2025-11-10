@@ -138,7 +138,7 @@ st.sidebar.markdown("### Harlur Coffee Traceability")
 query_params = st.query_params
 if "batch_id" in query_params and "menu" not in query_params:
     st.switch_page("Consumer View")
-menu = st.sidebar.radio("Navigasi", ["Tambah Data", "Lihat Data", "Edit Data", "Scan QR Realtime", "Consumer View"])
+menu = st.sidebar.radio("Navigasi", ["Tambah Data", "Lihat Data", "Edit / Hapus Data", "Scan QR", "Log Aktivitas", "Consumer View"])
 
 # ========== TAMBAH DATA ==========
 if menu == "Tambah Data":
