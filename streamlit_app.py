@@ -20,6 +20,8 @@ from pathlib import Path
 import tempfile
 import requests
 import time  # 🆕 untuk efek progress spinner
+import zipfile
+import io
 
 # ========== KONFIGURASI DASAR ==========
 st.set_page_config(page_title="Harlur Coffee QR Traceability", layout="wide")
@@ -76,16 +78,12 @@ def now_wib():
     return datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S")
 
 def backup_to_github(filename: str, content: bytes, commit_message="Auto backup from Streamlit"):
-    """
-    Menyimpan file backup (misal CSV atau DB) ke repository GitHub menggunakan API.
-    Pastikan kamu menyimpan token GitHub di st.secrets["GITHUB_TOKEN"].
-    """
-    GITHUB_USER = "frozeno24"         # username GitHub kamu
-    GITHUB_REPO = "harlur-traceability-qr"             # nama repository
-    GITHUB_PATH = f"backup/{filename}"    # folder tujuan di repo
+    """Upload file backup (CSV/ZIP) ke repository GitHub via API."""
+    GITHUB_USER = "USERNAME_KAMU"     # Ganti dengan username GitHub kamu
+    GITHUB_REPO = "REPO_KAMU"         # Ganti dengan nama repo kamu
+    GITHUB_PATH = f"backup/{filename}"
     TOKEN = st.secrets["GITHUB_TOKEN"]
 
-    # API URL
     url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{GITHUB_PATH}"
 
     # Cek apakah file sudah ada
@@ -99,22 +97,33 @@ def backup_to_github(filename: str, content: bytes, commit_message="Auto backup 
         "branch": "main"
     }
     if sha:
-        data["sha"] = sha  # update file lama
+        data["sha"] = sha
 
     res = requests.put(url, headers={"Authorization": f"token {TOKEN}"}, json=data)
-
     if res.status_code in [200, 201]:
-        st.success("✅ Backup berhasil diunggah ke GitHub.")
+        log_activity(f"Backup ke GitHub: {filename}")
+        st.success(f"✅ Backup berhasil diunggah ke GitHub ({filename})")
     else:
         st.error(f"Gagal upload ke GitHub: {res.status_code} — {res.text}")
 
 def backup_database():
-    """Ekspor seluruh data produksi ke CSV dan upload ke GitHub"""
+    """Ekspor data produksi dan QR code ke GitHub (CSV + ZIP)"""
     df = pd.read_sql_query("SELECT * FROM produksi", conn)
     csv_bytes = df.to_csv(index=False).encode("utf-8")
+    timestamp = datetime.now(WIB).strftime('%Y%m%d_%H%M')
 
-    filename = f"data_backup_{datetime.now(WIB).strftime('%Y%m%d_%H%M')}.csv"
-    backup_to_github(filename, csv_bytes, commit_message=f"Backup otomatis {filename}")
+    # Backup CSV
+    csv_filename = f"data_backup_{timestamp}.csv"
+    backup_to_github(csv_filename, csv_bytes, f"Backup otomatis CSV {timestamp}")
+
+    # Backup semua QR Code ke ZIP
+    qr_zip_bytes = io.BytesIO()
+    with zipfile.ZipFile(qr_zip_bytes, "w", zipfile.ZIP_DEFLATED) as zf:
+        for qr_file in QR_DIR.glob("*.png"):
+            zf.write(qr_file, qr_file.name)
+    qr_zip_bytes.seek(0)
+    zip_filename = f"qr_backup_{timestamp}.zip"
+    backup_to_github(zip_filename, qr_zip_bytes.getvalue(), f"Backup otomatis QR {timestamp}")
 
 
 def safe_path(path: Path):
@@ -289,7 +298,7 @@ if menu == "Tambah Data":
     with st.form("form_produksi"):
         col1, col2, col3 = st.columns(3)
         with col1:
-            batch_id = st.text_input("Batch ID")
+            batch_id = st.text_input("Batch ID").strip().upper()
             tanggal = st.date_input("Tanggal Produksi", datetime.now(WIB))
             pic = st.text_input("Nama PIC")
         with col2:
@@ -300,18 +309,40 @@ if menu == "Tambah Data":
             expired_date = st.date_input("Tanggal Kedaluwarsa", datetime.now(WIB) + timedelta(days=180))
 
         submitted = st.form_submit_button("Simpan Data dan Buat QR Code")
+
         if submitted:
-            if all([batch_id, tanggal, pic, tempat, varian, lokasi_gudang, expired_date]):
-                with st.spinner("📦 Menyimpan data dan membuat QR code..."):  # 🆕 progress spinner
-                    time.sleep(1)
-                    qr_path, link = tambah_data(batch_id, str(tanggal), pic, tempat, varian, lokasi_gudang, str(expired_date))
-                if qr_path:
-                    st.success("✅ Data berhasil disimpan.")
-                    st.image(qr_path, caption=f"QR Code Batch {batch_id}", width=200)
-                    st.markdown(f"[Lihat Consumer View]({link})")
-                    st.toast(f"Data batch {batch_id} berhasil ditambahkan.", icon="✅")  # 🆕 toast
+            # === VALIDASI DASAR ===
+            if not all([batch_id, tanggal, pic, tempat, varian, lokasi_gudang, expired_date]):
+                st.warning("⚠️ Harap isi semua kolom dengan lengkap.")
+            elif expired_date <= tanggal:
+                st.error("❌ Tanggal kedaluwarsa harus setelah tanggal produksi.")
             else:
-                st.warning("Harap isi semua kolom.")
+                # === CEK DUPLIKASI batch_id ===
+                cursor.execute("SELECT COUNT(*) FROM produksi WHERE batch_id=?", (batch_id,))
+                sudah_ada = cursor.fetchone()[0]
+                if sudah_ada > 0:
+                    st.warning(f"⚠️ Batch ID '{batch_id}' sudah terdaftar. Gunakan ID lain.")
+                else:
+                    # === PROSES PENYIMPANAN DATA ===
+                    with st.spinner("📦 Menyimpan data dan membuat QR code..."):
+                        try:
+                            time.sleep(1)
+                            qr_path, link = tambah_data(
+                                batch_id, str(tanggal), pic, tempat, varian, lokasi_gudang, str(expired_date)
+                            )
+                            st.success("✅ Data berhasil disimpan dan QR Code dibuat.")
+                            st.image(qr_path, caption=f"QR Code Batch {batch_id}", width=200)
+                            st.markdown(f"[🔗 Lihat Consumer View]({link})")
+                            st.toast(f"Data batch {batch_id} berhasil ditambahkan.", icon="✅")
+
+                            # === BACKUP OTOMATIS KE GITHUB ===
+                            with st.spinner("💾 Melakukan backup otomatis ke GitHub..."):
+                                try:
+                                    backup_database()
+                                except Exception as e:
+                                    st.error(f"Gagal melakukan backup otomatis: {e}")
+                        except Exception as e:
+                            st.error(f"Terjadi kesalahan saat menyimpan data: {e}")
 
 # ---------- LIHAT DATA ----------
 elif menu == "Lihat Data":
@@ -346,17 +377,7 @@ elif menu == "Lihat Data":
                         file_name=f"{selected_pdf}.pdf",
                         mime="application/pdf"
                     )
-
-        # ==== TOMBOL BACKUP KE GITHUB ====
-        st.markdown("---")
-        st.markdown("### 💾 Backup Data Produksi ke GitHub")
-        st.info("Backup akan menyimpan file CSV terbaru ke folder `backup/` di repository GitHub kamu.")
-        if st.button("🚀 Backup Sekarang"):
-            try:
-                backup_database()
-            except Exception as e:
-                st.error(f"Gagal melakukan backup: {e}")
-
+                    
     else:
         st.info("Belum ada data produksi.")
 
