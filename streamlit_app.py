@@ -331,21 +331,21 @@ elif menu == "Lihat Data":
         st.markdown(df_display.to_html(escape=False, index=False), unsafe_allow_html=True)
         st.download_button("📦 Ekspor ke CSV", df.to_csv(index=False).encode("utf-8"),
                            "data_produksi.csv", "text/csv")
+
+        # Pilih batch untuk ekspor PDF
         selected_pdf = st.selectbox("Pilih Batch untuk Ekspor PDF", df["batch_id"].tolist())
 
-    else:
-        st.info("Belum ada data produksi.")
-
-    if st.button("📄 Ekspor ke PDF"):
-        pdf_path = export_pdf(selected_pdf)
-        if pdf_path and pdf_path.exists():
-            with open(pdf_path, "rb") as f:
-                st.download_button(
-                    label=f"⬇️ Unduh Laporan {selected_pdf}.pdf",
-                    data=f,
-                    file_name=f"{selected_pdf}.pdf",
-                    mime="application/pdf"
-                )
+        # Tombol ekspor ke PDF
+        if st.button("📄 Ekspor ke PDF"):
+            pdf_path = export_pdf(selected_pdf)
+            if pdf_path and pdf_path.exists():
+                with open(pdf_path, "rb") as f:
+                    st.download_button(
+                        label=f"⬇️ Unduh Laporan {selected_pdf}.pdf",
+                        data=f,
+                        file_name=f"{selected_pdf}.pdf",
+                        mime="application/pdf"
+                    )
 
         # ==== TOMBOL BACKUP KE GITHUB ====
         st.markdown("---")
@@ -356,6 +356,9 @@ elif menu == "Lihat Data":
                 backup_database()
             except Exception as e:
                 st.error(f"Gagal melakukan backup: {e}")
+
+    else:
+        st.info("Belum ada data produksi.")
 
 # ---------- SCAN QR ----------
 elif menu == "Scan QR":
