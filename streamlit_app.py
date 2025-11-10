@@ -392,7 +392,6 @@ if menu == "Tambah Data":
                             st.error(f"Terjadi kesalahan saat menyimpan data: {e}")
 
 # ---------- LIHAT DATA ----------
-# ---------- LIHAT DATA ----------
 elif menu == "Lihat Data":
     st.subheader("📋 Daftar Data Produksi")
     df = pd.read_sql_query("SELECT * FROM produksi ORDER BY id DESC", conn)
@@ -435,6 +434,7 @@ elif menu == "Lihat Data":
 
         col1, col2 = st.columns(2)
 
+        # ==== BACKUP MANUAL ====
         with col1:
             st.info("Backup akan menyimpan data terbaru dan QR Code ke GitHub (folder `backup/`).")
             if st.button("🚀 Backup Manual Sekarang"):
@@ -444,16 +444,44 @@ elif menu == "Lihat Data":
                     except Exception as e:
                         st.error(f"Gagal melakukan backup manual: {e}")
 
+        # ==== RESTORE OTOMATIS DENGAN DROPDOWN ====
         with col2:
             st.info("Restore akan mengembalikan database dari file backup yang tersimpan di GitHub.")
-            csv_name = st.text_input("Nama file CSV backup (misal: data_backup_20251110_2124.csv)")
-            zip_name = st.text_input("Nama file ZIP QR (misal: qr_backup_20251110_2124.zip)")
-            if st.button("🔄 Jalankan Restore dari GitHub"):
-                with st.spinner("Mengunduh dan memulihkan data dari GitHub..."):
-                    try:
-                        restore_from_github(csv_name, zip_name)
-                    except Exception as e:
-                        st.error(f"Gagal melakukan restore: {e}")
+
+            GITHUB_USER = "USERNAME_KAMU"      # Ganti dengan username GitHub kamu
+            GITHUB_REPO = "REPO_KAMU"          # Ganti dengan nama repo GitHub kamu
+            TOKEN = st.secrets["GITHUB_TOKEN"]
+
+            headers = {"Authorization": f"token {TOKEN}"}
+            api_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/backup"
+
+            csv_files, zip_files = [], []
+            with st.spinner("📂 Mengambil daftar file backup dari GitHub..."):
+                try:
+                    res = requests.get(api_url, headers=headers)
+                    if res.status_code == 200:
+                        for file in res.json():
+                            if file["name"].endswith(".csv"):
+                                csv_files.append(file["name"])
+                            elif file["name"].endswith(".zip"):
+                                zip_files.append(file["name"])
+                    else:
+                        st.error(f"Gagal memuat daftar file backup (Status: {res.status_code})")
+                except Exception as e:
+                    st.error(f"Terjadi kesalahan saat mengakses GitHub API: {e}")
+
+            if csv_files and zip_files:
+                selected_csv = st.selectbox("📄 Pilih File CSV Backup", sorted(csv_files, reverse=True))
+                selected_zip = st.selectbox("🗂️ Pilih File ZIP QR", sorted(zip_files, reverse=True))
+
+                if st.button("🔄 Jalankan Restore dari GitHub"):
+                    with st.spinner("Mengunduh dan memulihkan data dari GitHub..."):
+                        try:
+                            restore_from_github(selected_csv, selected_zip)
+                        except Exception as e:
+                            st.error(f"Gagal melakukan restore: {e}")
+            else:
+                st.warning("⚠️ Tidak ditemukan file backup di GitHub. Pastikan folder `backup/` sudah berisi file hasil backup.")
 
     else:
         st.info("Belum ada data produksi.")
