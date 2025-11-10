@@ -79,8 +79,8 @@ def now_wib():
 
 def backup_to_github(filename: str, content: bytes, commit_message="Auto backup from Streamlit"):
     """Upload file backup (CSV/ZIP) ke repository GitHub via API."""
-    GITHUB_USER = "USERNAME_KAMU"     # Ganti dengan username GitHub kamu
-    GITHUB_REPO = "REPO_KAMU"         # Ganti dengan nama repo kamu
+    GITHUB_USER = "frozeno24"     # Ganti dengan username GitHub kamu
+    GITHUB_REPO = "harlur-traceability-qr"         # Ganti dengan nama repo kamu
     GITHUB_PATH = f"backup/{filename}"
     TOKEN = st.secrets["GITHUB_TOKEN"]
 
@@ -377,7 +377,7 @@ elif menu == "Lihat Data":
                         file_name=f"{selected_pdf}.pdf",
                         mime="application/pdf"
                     )
-                    
+
     else:
         st.info("Belum ada data produksi.")
 
