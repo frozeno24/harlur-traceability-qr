@@ -80,8 +80,8 @@ def backup_to_github(filename: str, content: bytes, commit_message="Auto backup 
     Menyimpan file backup (misal CSV atau DB) ke repository GitHub menggunakan API.
     Pastikan kamu menyimpan token GitHub di st.secrets["GITHUB_TOKEN"].
     """
-    GITHUB_USER = "USERNAME_KAMU"         # ganti dengan username GitHub kamu
-    GITHUB_REPO = "REPO_KAMU"             # ganti dengan nama repository
+    GITHUB_USER = "frozeno24"         # username GitHub kamu
+    GITHUB_REPO = "harlur-traceability-qr"             # nama repository
     GITHUB_PATH = f"backup/{filename}"    # folder tujuan di repo
     TOKEN = st.secrets["GITHUB_TOKEN"]
 
@@ -282,8 +282,6 @@ elif "batch_id" in query_params:
 
 # Sidebar navigation
 menu = st.sidebar.radio("Navigasi", available_menus, index=available_menus.index(default_menu))
-if st.sidebar.button("💾 Backup ke GitHub"):
-    backup_database()
 
 # ---------- TAMBAH DATA ----------
 if menu == "Tambah Data":
@@ -348,6 +346,16 @@ elif menu == "Lihat Data":
                     file_name=f"{selected_pdf}.pdf",
                     mime="application/pdf"
                 )
+
+        # ==== TOMBOL BACKUP KE GITHUB ====
+        st.markdown("---")
+        st.markdown("### 💾 Backup Data Produksi ke GitHub")
+        st.info("Backup akan menyimpan file CSV terbaru ke folder `backup/` di repository GitHub kamu.")
+        if st.button("🚀 Backup Sekarang"):
+            try:
+                backup_database()
+            except Exception as e:
+                st.error(f"Gagal melakukan backup: {e}")
 
 # ---------- SCAN QR ----------
 elif menu == "Scan QR":
