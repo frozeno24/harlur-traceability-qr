@@ -133,6 +133,11 @@ def status_expired(expired_date_str):
 if LOGO_PATH.exists():
     st.sidebar.image(str(LOGO_PATH), width=130)
 st.sidebar.markdown("### Harlur Coffee Traceability")
+
+# === AUTO-REDIRECT KE CONSUMER VIEW ===
+query_params = st.query_params
+if "batch_id" in query_params and "menu" not in query_params:
+    st.switch_page("Consumer View")
 menu = st.sidebar.radio("Navigasi", ["Tambah Data", "Lihat Data", "Edit Data", "Scan QR Realtime", "Consumer View"])
 
 # ========== TAMBAH DATA ==========
