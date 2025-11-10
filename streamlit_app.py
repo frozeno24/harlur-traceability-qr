@@ -47,7 +47,7 @@ header_html = """
     padding: 15px 25px;
     border-radius: 8px;
 ">
-    <img src="logo_harlur.png" style="width:65px; margin-right:20px; border-radius:8px;">
+    <img src="./logo_harlur.png" style="width:65px; margin-right:20px; border-radius:8px;">
     <div>
         <h1 style="color:white; margin-bottom:2px; font-family:Arial, sans-serif;">Harlur Coffee</h1>
         <h4 style="color:#ccc; margin-top:0; font-weight:normal;">QR Traceability System</h4>
