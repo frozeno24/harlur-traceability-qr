@@ -21,9 +21,9 @@ from pathlib import Path
 st.set_page_config(page_title="Harlur Coffee QR Traceability", layout="wide")
 
 # Path aman berbasis direktori Streamlit
-BASE_DIR = Path(st.__file__).resolve().parent.parent  # path root Streamlit app
+BASE_DIR = Path.cwd()
 DATA_DIR = BASE_DIR / "app_data"
-DATA_DIR.mkdir(exist_ok=True)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_PATH = DATA_DIR / "data_produksi.db"
 QR_DIR = DATA_DIR / "qr_codes"
