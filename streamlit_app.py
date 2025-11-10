@@ -1,6 +1,7 @@
 # =========================================================
 # HARLUR COFFEE - QR TRACEABILITY SYSTEM
 # Internal Production & Distribution Tracking App
+# Deployment-safe version (Streamlit Cloud Compatible)
 # Last Updated: 2025-11-10
 # =========================================================
 
@@ -16,18 +17,19 @@ import pytz
 import cv2
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
 from pathlib import Path
+import tempfile
 
 # ========== KONFIGURASI DASAR ==========
 st.set_page_config(page_title="Harlur Coffee QR Traceability", layout="wide")
 
-# Path aman berbasis direktori Streamlit
-BASE_DIR = Path.cwd()
+# Gunakan direktori kerja yang writable (misalnya /tmp di Streamlit Cloud)
+BASE_DIR = Path(tempfile.gettempdir()) / "harlur_traceability"
 DATA_DIR = BASE_DIR / "app_data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_PATH = DATA_DIR / "data_produksi.db"
 QR_DIR = DATA_DIR / "qr_codes"
-QR_DIR.mkdir(exist_ok=True)
+QR_DIR.mkdir(parents=True, exist_ok=True)
 
 # Path logo (gunakan Path agar lintas OS)
 LOGO_PATH = DATA_DIR / "logo_harlur.png"
@@ -40,6 +42,8 @@ WIB = pytz.timezone("Asia/Jakarta")
 # ========== DATABASE ==========
 conn = sqlite3.connect(DB_PATH)
 cursor = conn.cursor()
+
+# Tabel produksi
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS produksi (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,6 +58,15 @@ CREATE TABLE IF NOT EXISTS produksi (
     updated_at TEXT
 )
 """)
+
+# Tabel log aktivitas
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS log_aktivitas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    waktu TEXT,
+    deskripsi TEXT
+)
+""")
 conn.commit()
 
 # ========== FUNGSI UTILITAS ==========
@@ -66,6 +79,29 @@ def safe_path(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
+def log_activity(deskripsi: str):
+    """Mencatat aktivitas ke tabel log"""
+    waktu = now_wib()
+    cursor.execute("INSERT INTO log_aktivitas (waktu, deskripsi) VALUES (?, ?)", (waktu, deskripsi))
+    conn.commit()
+
+def delete_batch(batch_id: str):
+    """Menghapus satu data produksi berdasarkan batch_id"""
+    try:
+        # Hapus dari database
+        cursor.execute("DELETE FROM produksi WHERE batch_id = ?", (batch_id,))
+        conn.commit()
+
+        # Hapus file QR jika ada
+        qr_path = QR_DIR / f"{batch_id}.png"
+        if qr_path.exists():
+            qr_path.unlink()
+
+        # Catat ke log
+        log_activity(f"Hapus data batch {batch_id}")
+    except Exception as e:
+        st.error(f"Gagal menghapus data batch {batch_id}: {e}")
+
 # ========== FUNGSI QR DAN DATABASE ==========
 def tambah_data(batch_id, tanggal, pic, tempat, varian, lokasi_gudang, expired_date):
     timestamp = now_wib()
@@ -76,15 +112,16 @@ def tambah_data(batch_id, tanggal, pic, tempat, varian, lokasi_gudang, expired_d
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (batch_id, tanggal, pic, tempat, varian, lokasi_gudang, expired_date, timestamp, timestamp))
     conn.commit()
+    log_activity(f"Tambah data batch {batch_id}")
 
-    # Gunakan path-safe untuk file QR
+    # Generate QR code
     link = f"https://harlur-traceability.streamlit.app/?menu=Consumer%20View&batch_id={batch_id}"
     qr = qrcode.QRCode(box_size=10, border=2)
     qr.add_data(link)
     qr.make(fit=True)
     img_qr = qr.make_image(fill_color="black", back_color="white").convert("RGB")
 
-    # Tambahkan logo jika tersedia
+    # Tambahkan logo jika ada
     if LOGO_PATH.exists():
         logo = Image.open(LOGO_PATH)
         basewidth = 80
@@ -98,22 +135,10 @@ def tambah_data(batch_id, tanggal, pic, tempat, varian, lokasi_gudang, expired_d
     img_qr.save(qr_path)
     return str(qr_path), link
 
-
-def get_batch_info(batch_id):
+def get_batch(batch_id):
     query = "SELECT * FROM produksi WHERE batch_id = ?"
     df = pd.read_sql_query(query, conn, params=(batch_id,))
     return df if not df.empty else None
-
-
-def update_data(batch_id, tempat, varian, lokasi_gudang, expired_date):
-    updated_at = now_wib()
-    cursor.execute("""
-        UPDATE produksi
-        SET tempat_produksi = ?, varian_produksi = ?, lokasi_gudang = ?, expired_date = ?, updated_at = ?
-        WHERE batch_id = ?
-    """, (tempat, varian, lokasi_gudang, expired_date, updated_at, batch_id))
-    conn.commit()
-
 
 def status_expired(expired_date_str):
     try:
@@ -134,16 +159,18 @@ if LOGO_PATH.exists():
     st.sidebar.image(str(LOGO_PATH), width=130)
 st.sidebar.markdown("### Harlur Coffee Traceability")
 
-# === AUTO-REDIRECT KE CONSUMER VIEW ===
 query_params = st.query_params
 if "batch_id" in query_params and "menu" not in query_params:
     st.switch_page("Consumer View")
-menu = st.sidebar.radio("Navigasi", ["Tambah Data", "Lihat Data", "Edit / Hapus Data", "Scan QR", "Log Aktivitas", "Consumer View"])
 
-# ========== TAMBAH DATA ==========
+menu = st.sidebar.radio("Navigasi", [
+    "Tambah Data", "Lihat Data", "Edit / Hapus Data",
+    "Scan QR", "Log Aktivitas", "Consumer View"
+])
+
+# ---------- TAMBAH DATA ----------
 if menu == "Tambah Data":
     st.title("Tambah Data Produksi")
-
     with st.form("form_produksi"):
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -158,7 +185,6 @@ if menu == "Tambah Data":
             expired_date = st.date_input("Tanggal Kedaluwarsa", datetime.now(WIB) + timedelta(days=180))
 
         submitted = st.form_submit_button("Simpan Data dan Buat QR Code")
-
         if submitted:
             if all([batch_id, tanggal, pic, tempat, varian, lokasi_gudang, expired_date]):
                 qr_path, link = tambah_data(batch_id, str(tanggal), pic, tempat, varian, lokasi_gudang, str(expired_date))
@@ -172,22 +198,22 @@ if menu == "Tambah Data":
 elif menu == "Lihat Data":
     st.subheader("📋 Daftar Data Produksi")
     df = pd.read_sql_query("SELECT * FROM produksi ORDER BY id DESC", conn)
-
     if not df.empty:
-        df["QR_Code"] = df["batch_id"].apply(lambda x: f'<img src="data:image/png;base64,{base64.b64encode(open(f"qr_codes/{x}.png","rb").read()).decode()}" width="70">')
+        df["QR_Code"] = df["batch_id"].apply(
+            lambda x: f'<img src="data:image/png;base64,{base64.b64encode(open(QR_DIR / f"{x}.png","rb").read()).decode()}" width="70">'
+            if (QR_DIR / f"{x}.png").exists() else "❌"
+        )
         df["Status"] = df["expired_date"].apply(status_expired)
-        df_display = df[["timestamp", "batch_id", "tanggal", "pic", "tempat_produksi", "varian_produksi",
-                         "lokasi_gudang", "expired_date", "Status", "updated_at", "QR_Code"]]
+        df_display = df[["timestamp", "batch_id", "tanggal", "pic", "tempat_produksi",
+                         "varian_produksi", "lokasi_gudang", "expired_date", "Status", "updated_at", "QR_Code"]]
         df_display.columns = ["Timestamp", "Batch ID", "Tanggal", "PIC", "Tempat", "Varian",
                               "Gudang", "Kedaluwarsa", "Status", "Last Updated", "QR Code"]
 
         st.markdown(df_display.to_html(escape=False, index=False), unsafe_allow_html=True)
-
-        # Ekspor
-        st.download_button("📦 Ekspor ke Excel", df.to_csv(index=False).encode("utf-8"), "data_produksi.csv", "text/csv")
+        st.download_button("📦 Ekspor ke CSV", df.to_csv(index=False).encode("utf-8"),
+                           "data_produksi.csv", "text/csv")
     else:
         st.info("Belum ada data produksi.")
-
 
 # ---------- EDIT / HAPUS ----------
 elif menu == "Edit / Hapus Data":
@@ -205,8 +231,11 @@ elif menu == "Edit / Hapus Data":
             colA, colB = st.columns(2)
             with colA:
                 if st.button("💾 Simpan Perubahan"):
-                    cursor.execute("""UPDATE produksi SET tempat_produksi=?, varian_produksi=?, lokasi_gudang=?, expired_date=?, updated_at=? WHERE batch_id=?""",
-                                   (tempat, varian, gudang, str(expired), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), selected))
+                    cursor.execute("""
+                        UPDATE produksi
+                        SET tempat_produksi=?, varian_produksi=?, lokasi_gudang=?, expired_date=?, updated_at=?
+                        WHERE batch_id=?
+                    """, (tempat, varian, gudang, str(expired), now_wib(), selected))
                     conn.commit()
                     log_activity(f"Edit data batch {selected}")
                     st.success("Data berhasil diperbarui.")
@@ -217,10 +246,10 @@ elif menu == "Edit / Hapus Data":
     else:
         st.info("Belum ada data untuk diedit.")
 
-
-# ---------- QR SCANNER ----------
+# ---------- SCAN QR ----------
 elif menu == "Scan QR":
     st.subheader("📸 Scan QR Code Realtime")
+
     class QRScanner(VideoProcessorBase):
         def __init__(self): self.qr_result = None
         def recv(self, frame):
@@ -235,7 +264,6 @@ elif menu == "Scan QR":
     if ctx.video_processor and ctx.video_processor.qr_result:
         st.success(f"QR Code Terbaca: {ctx.video_processor.qr_result}")
 
-
 # ---------- LOG ----------
 elif menu == "Log Aktivitas":
     st.subheader("🕒 Riwayat Aktivitas Sistem")
@@ -244,7 +272,6 @@ elif menu == "Log Aktivitas":
         st.dataframe(logs)
     else:
         st.info("Belum ada aktivitas.")
-
 
 # ---------- CONSUMER VIEW ----------
 elif menu == "Consumer View":
@@ -255,7 +282,8 @@ elif menu == "Consumer View":
         data = get_batch(batch_id)
         if data is not None:
             info = data.iloc[0]
-            st.image("logo_harlur.png", width=150)
+            if LOGO_PATH.exists():
+                st.image(str(LOGO_PATH), width=150)
             st.write(f"### Varian: {info['varian_produksi']}")
             st.write(f"📅 Tanggal Produksi: {info['tanggal']}")
             st.write(f"🏭 Tempat Produksi: {info['tempat_produksi']}")
