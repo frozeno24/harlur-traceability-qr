@@ -19,6 +19,12 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
 # ---------- KONFIGURASI DASAR ----------
+
+DB_PATH = "data_produksi.db"
+QR_DIR = "qr_codes"
+os.makedirs(QR_DIR, exist_ok=True)
+
+# ---------- STYLING ----------
 st.set_page_config(
     page_title="Harlur Coffee QR Traceability",
     layout="wide",
@@ -26,35 +32,29 @@ st.set_page_config(
 )
 
 # Header utama dengan logo
-col_logo, col_title = st.columns([1, 5])
-with col_logo:
-    st.image("logo_harlur.png", width=80)
-with col_title:
-    st.markdown(
-        """
-        <h1 style="margin-bottom:0;color:#000000;">Harlur Coffee</h1>
-        <h4 style="margin-top:0;color:#555;">QR Traceability System</h4>
-        """,
-        unsafe_allow_html=True
-    )
+st.set_page_config(
+    page_title="Harlur Coffee QR Traceability",
+    layout="wide",
+    page_icon="logo_harlur.png"
+)
 
-
-DB_PATH = "data_produksi.db"
-QR_DIR = "qr_codes"
-os.makedirs(QR_DIR, exist_ok=True)
-
-# ---------- STYLING ----------
-st.markdown("""
-<style>
-body { background-color: #FFFFFF; color: #000000; font-family: 'Helvetica', sans-serif; }
-.sidebar .sidebar-content { background-color: #000000; color: white; }
-th { background-color: black; color: white; padding: 6px; text-align: left; }
-td { border-bottom: 1px solid #ddd; padding: 6px; }
-</style>
-""", unsafe_allow_html=True)
-
-st.title("☕ HARLUR COFFEE - QR Traceability System")
-st.caption("Sistem Pelacakan Produksi dan Distribusi Kopi Harlur")
+# HEADER DENGAN KONTRAS HITAM PUTIH
+header_html = """
+<div style="
+    display: flex;
+    align-items: center;
+    background-color: #000; /* latar hitam */
+    padding: 15px 25px;
+    border-radius: 8px;
+">
+    <img src="logo_harlur.png" style="width:65px; margin-right:20px; border-radius:8px;">
+    <div>
+        <h1 style="color:white; margin-bottom:2px; font-family:Arial, sans-serif;">Harlur Coffee</h1>
+        <h4 style="color:#ccc; margin-top:0; font-weight:normal;">QR Traceability System</h4>
+    </div>
+</div>
+"""
+st.markdown(header_html, unsafe_allow_html=True)
 
 # ---------- DATABASE SETUP ----------
 conn = sqlite3.connect(DB_PATH)
