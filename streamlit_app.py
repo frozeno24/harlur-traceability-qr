@@ -4,51 +4,40 @@
 # Last Updated: 2025-11-10
 # =========================================================
 
-import os
+import streamlit as st
 import sqlite3
 import qrcode
-import base64
-import pandas as pd
-import cv2
-from io import BytesIO
 from PIL import Image
+import os
+import pandas as pd
+import base64
 from datetime import datetime, timedelta
-import streamlit as st
+import pytz
+import cv2
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
+from pathlib import Path
 
-# ---------- KONFIGURASI DASAR ----------
+# ========== KONFIGURASI DASAR ==========
+st.set_page_config(page_title="Harlur Coffee QR Traceability", layout="wide")
 
-DB_PATH = "data_produksi.db"
-QR_DIR = "qr_codes"
-os.makedirs(QR_DIR, exist_ok=True)
+# Path aman berbasis direktori Streamlit
+BASE_DIR = Path(st.__file__).resolve().parent.parent  # path root Streamlit app
+DATA_DIR = BASE_DIR / "app_data"
+DATA_DIR.mkdir(exist_ok=True)
 
-# ---------- STYLING ----------
-def get_base64_image(image_path):
-    with open(image_path, "rb") as img_file:
-        return base64.b64encode(img_file.read()).decode()
+DB_PATH = DATA_DIR / "data_produksi.db"
+QR_DIR = DATA_DIR / "qr_codes"
+QR_DIR.mkdir(exist_ok=True)
 
-logo_base64 = get_base64_image("logo_harlur.png")
+# Path logo (gunakan Path agar lintas OS)
+LOGO_PATH = DATA_DIR / "logo_harlur.png"
+if not LOGO_PATH.exists():
+    LOGO_PATH = Path("logo_harlur.png")  # fallback jika logo di root
 
-header_html = f"""
-<div style="
-    display:flex;
-    align-items:center;
-    background-color:#000;
-    padding:15px 25px;
-    border-radius:8px;
-">
-    <img src="data:image/png;base64,{logo_base64}" style="width:65px;margin-right:20px;border-radius:8px;">
-    <div>
-        <h1 style="color:white;margin-bottom:2px;font-family:Arial, sans-serif;">Harlur Coffee</h1>
-        <h4 style="color:#ccc;margin-top:0;font-weight:normal;">QR Traceability System</h4>
-    </div>
-</div>
-"""
-st.markdown(header_html, unsafe_allow_html=True)
+# Set timezone ke WIB
+WIB = pytz.timezone("Asia/Jakarta")
 
-# ---------- DATABASE SETUP ----------
+# ========== DATABASE ==========
 conn = sqlite3.connect(DB_PATH)
 cursor = conn.cursor()
 cursor.execute("""
@@ -65,33 +54,39 @@ CREATE TABLE IF NOT EXISTS produksi (
     updated_at TEXT
 )
 """)
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS log_aktivitas (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    aktivitas TEXT,
-    waktu TEXT
-)
-""")
 conn.commit()
 
+# ========== FUNGSI UTILITAS ==========
+def now_wib():
+    """Mengembalikan waktu saat ini dalam format WIB"""
+    return datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S")
 
-# ---------- UTILITAS ----------
-def log_activity(aktivitas):
-    waktu = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cursor.execute("INSERT INTO log_aktivitas (aktivitas, waktu) VALUES (?, ?)", (aktivitas, waktu))
+def safe_path(path: Path):
+    """Pastikan folder path tersedia"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+# ========== FUNGSI QR DAN DATABASE ==========
+def tambah_data(batch_id, tanggal, pic, tempat, varian, lokasi_gudang, expired_date):
+    timestamp = now_wib()
+    cursor.execute("""
+        INSERT INTO produksi (
+            batch_id, tanggal, pic, tempat_produksi, varian_produksi,
+            lokasi_gudang, expired_date, timestamp, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (batch_id, tanggal, pic, tempat, varian, lokasi_gudang, expired_date, timestamp, timestamp))
     conn.commit()
 
-
-def generate_qr(batch_id):
+    # Gunakan path-safe untuk file QR
     link = f"https://harlur-traceability.streamlit.app/?menu=Consumer%20View&batch_id={batch_id}"
     qr = qrcode.QRCode(box_size=10, border=2)
     qr.add_data(link)
     qr.make(fit=True)
     img_qr = qr.make_image(fill_color="black", back_color="white").convert("RGB")
 
-    logo_path = "logo_harlur.png"
-    if os.path.exists(logo_path):
-        logo = Image.open(logo_path)
+    # Tambahkan logo jika tersedia
+    if LOGO_PATH.exists():
+        logo = Image.open(LOGO_PATH)
         basewidth = 80
         wpercent = basewidth / float(logo.size[0])
         hsize = int((float(logo.size[1]) * float(wpercent)))
@@ -99,74 +94,74 @@ def generate_qr(batch_id):
         pos = ((img_qr.size[0] - logo.size[0]) // 2, (img_qr.size[1] - logo.size[1]) // 2)
         img_qr.paste(logo, pos)
 
-    path = f"{QR_DIR}/{batch_id}.png"
-    img_qr.save(path)
-    return path, link
+    qr_path = safe_path(QR_DIR / f"{batch_id}.png")
+    img_qr.save(qr_path)
+    return str(qr_path), link
 
 
-def get_batch(batch_id):
-    df = pd.read_sql_query("SELECT * FROM produksi WHERE batch_id=?", conn, params=(batch_id,))
+def get_batch_info(batch_id):
+    query = "SELECT * FROM produksi WHERE batch_id = ?"
+    df = pd.read_sql_query(query, conn, params=(batch_id,))
     return df if not df.empty else None
 
 
-def delete_batch(batch_id):
-    cursor.execute("DELETE FROM produksi WHERE batch_id=?", (batch_id,))
+def update_data(batch_id, tempat, varian, lokasi_gudang, expired_date):
+    updated_at = now_wib()
+    cursor.execute("""
+        UPDATE produksi
+        SET tempat_produksi = ?, varian_produksi = ?, lokasi_gudang = ?, expired_date = ?, updated_at = ?
+        WHERE batch_id = ?
+    """, (tempat, varian, lokasi_gudang, expired_date, updated_at, batch_id))
     conn.commit()
-    log_activity(f"Hapus data batch {batch_id}")
 
 
-def status_expired(date_str):
+def status_expired(expired_date_str):
     try:
-        exp_date = datetime.strptime(date_str, "%Y-%m-%d")
-        days_left = (exp_date.date() - datetime.now().date()).days
-        if days_left < 0:
-            return "❌ Expired"
-        elif days_left <= 7:
-            return f"⚠️ {days_left} hari lagi"
-        return f"✅ {days_left} hari lagi"
-    except:
+        exp_date = datetime.strptime(expired_date_str, "%Y-%m-%d")
+        today = datetime.now(WIB).date()
+        delta = (exp_date.date() - today).days
+        if delta < 0:
+            return f"<span style='color:red;font-weight:bold;'>❌ Expired</span>"
+        elif delta <= 7:
+            return f"<span style='color:orange;font-weight:bold;'>⚠️ Hampir kedaluwarsa ({delta} hari lagi)</span>"
+        else:
+            return f"<span style='color:green;font-weight:bold;'>✅ Aman ({delta} hari lagi)</span>"
+    except Exception:
         return "⏳ Tidak valid"
 
+# ========== SIDEBAR ==========
+if LOGO_PATH.exists():
+    st.sidebar.image(str(LOGO_PATH), width=130)
+st.sidebar.markdown("### Harlur Coffee Traceability")
+menu = st.sidebar.radio("Navigasi", ["Tambah Data", "Lihat Data", "Edit Data", "Scan QR Realtime", "Consumer View"])
 
-# ---------- MENU ----------
-menu = st.sidebar.radio("Navigasi", [
-    "Tambah Data Produksi", "Lihat Data", "Edit / Hapus Data", "Scan QR", "Log Aktivitas", "Consumer View"
-])
+# ========== TAMBAH DATA ==========
+if menu == "Tambah Data":
+    st.title("Tambah Data Produksi")
 
-
-# ---------- TAMBAH DATA ----------
-if menu == "Tambah Data Produksi":
-    st.subheader("Tambah Data Produksi")
     with st.form("form_produksi"):
         col1, col2, col3 = st.columns(3)
         with col1:
             batch_id = st.text_input("Batch ID")
-            tanggal = st.date_input("Tanggal Produksi", datetime.now())
+            tanggal = st.date_input("Tanggal Produksi", datetime.now(WIB))
             pic = st.text_input("Nama PIC")
         with col2:
             tempat = st.text_input("Tempat Produksi")
             varian = st.text_input("Varian Produksi")
         with col3:
-            lokasi = st.text_input("Lokasi Gudang")
-            expired = st.date_input("Tanggal Kedaluwarsa", datetime.now() + timedelta(days=180))
-        submit = st.form_submit_button("Simpan Data & Buat QR")
+            lokasi_gudang = st.text_input("Lokasi Gudang")
+            expired_date = st.date_input("Tanggal Kedaluwarsa", datetime.now(WIB) + timedelta(days=180))
 
-        if submit and all([batch_id, tanggal, pic, tempat, varian, lokasi, expired]):
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            cursor.execute("""
-                INSERT INTO produksi (batch_id, tanggal, pic, tempat_produksi, varian_produksi,
-                lokasi_gudang, expired_date, timestamp, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (batch_id, str(tanggal), pic, tempat, varian, lokasi, str(expired), now, now))
-            conn.commit()
+        submitted = st.form_submit_button("Simpan Data dan Buat QR Code")
 
-            qr_path, link = generate_qr(batch_id)
-            log_activity(f"Tambah data batch {batch_id}")
-
-            st.success("Data berhasil disimpan!")
-            st.image(qr_path, caption=f"QR Code Batch {batch_id}", width=180)
-            st.markdown(f"[🔗 Buka Consumer View]({link})")
-
+        if submitted:
+            if all([batch_id, tanggal, pic, tempat, varian, lokasi_gudang, expired_date]):
+                qr_path, link = tambah_data(batch_id, str(tanggal), pic, tempat, varian, lokasi_gudang, str(expired_date))
+                st.success("Data berhasil disimpan.")
+                st.image(qr_path, caption=f"QR Code Batch {batch_id}", width=200)
+                st.markdown(f"[Lihat Consumer View]({link})")
+            else:
+                st.warning("Harap isi semua kolom.")
 
 # ---------- LIHAT DATA ----------
 elif menu == "Lihat Data":
