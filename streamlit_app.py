@@ -151,11 +151,38 @@ if menu == "Tambah Data":
 elif menu == "Lihat Data":
     st.subheader("📋 Daftar Data Produksi")
 
+    # ======== Styling tabel hitam-putih elegan ========
     st.markdown("""
     <style>
-    table {width: 100%; border-collapse: collapse;}
-    th {text-align: left !important; background-color: #f2f2f2; padding: 8px !important;}
-    td {padding: 6px !important;}
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+        border: 1px solid #ddd;
+    }
+    thead th {
+        background-color: #000000 !important;   /* Hitam solid */
+        color: #FFFFFF !important;              /* Teks putih */
+        text-align: center !important;
+        padding: 10px !important;
+        border: 1px solid #333 !important;
+        font-weight: 600;
+    }
+    tbody td {
+        text-align: center !important;
+        padding: 8px !important;
+        border: 1px solid #ddd !important;
+        color: #000000 !important;
+    }
+    tbody tr:nth-child(even) {
+        background-color: #f7f7f7 !important;   /* Abu terang */
+    }
+    tbody tr:nth-child(odd) {
+        background-color: #ffffff !important;   /* Putih */
+    }
+    tbody tr:hover {
+        background-color: #e8e8e8 !important;   /* Efek hover */
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -164,13 +191,14 @@ elif menu == "Lihat Data":
     if not df.empty:
         df["QR_Code_Path"] = df["batch_id"].apply(lambda x: f"qr_codes/{x}.png")
 
+        # fungsi gambar QR
         def make_img_tag(path):
             if os.path.exists(path):
                 with open(path, "rb") as f:
                     img_b64 = base64.b64encode(f.read()).decode()
                     return f'<img src="data:image/png;base64,{img_b64}" width="90">'
             else:
-                return "❌ Tidak ditemukan"
+                return "❌"
 
         df["Status"] = df["expired_date"].apply(status_expired)
         df["QR_Code"] = df["QR_Code_Path"].apply(make_img_tag)
@@ -183,6 +211,7 @@ elif menu == "Lihat Data":
             "Timestamp", "Batch ID", "Tanggal", "PIC", "Tempat Produksi",
             "Varian", "Lokasi Gudang", "Kedaluwarsa", "Status", "Last Updated", "QR Code"
         ]
+
         st.markdown(df_display.to_html(escape=False, index=False), unsafe_allow_html=True)
     else:
         st.info("Belum ada data produksi tersimpan.")
