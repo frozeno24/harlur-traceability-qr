@@ -19,7 +19,26 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
 # ---------- KONFIGURASI DASAR ----------
-st.set_page_config(page_title="Harlur Coffee Traceability", page_icon="☕", layout="wide")
+st.set_page_config(
+    page_title="Harlur Coffee QR Traceability",
+    layout="wide",
+    page_icon="logo_harlur.png"  # pakai logo di tab browser
+)
+
+# Header utama dengan logo
+col_logo, col_title = st.columns([1, 5])
+with col_logo:
+    st.image("logo_harlur.png", width=80)
+with col_title:
+    st.markdown(
+        """
+        <h1 style="margin-bottom:0;color:#000000;">Harlur Coffee</h1>
+        <h4 style="margin-top:0;color:#555;">QR Traceability System</h4>
+        """,
+        unsafe_allow_html=True
+    )
+
+
 DB_PATH = "data_produksi.db"
 QR_DIR = "qr_codes"
 os.makedirs(QR_DIR, exist_ok=True)
