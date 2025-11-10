@@ -448,8 +448,8 @@ elif menu == "Lihat Data":
         with col2:
             st.info("Restore akan mengembalikan database dari file backup yang tersimpan di GitHub.")
 
-            GITHUB_USER = "USERNAME_KAMU"      # Ganti dengan username GitHub kamu
-            GITHUB_REPO = "REPO_KAMU"          # Ganti dengan nama repo GitHub kamu
+            GITHUB_USER = "frozeno24"      # Ganti dengan username GitHub kamu
+            GITHUB_REPO = "harlur-traceability-qr"          # Ganti dengan nama repo GitHub kamu
             TOKEN = st.secrets["GITHUB_TOKEN"]
 
             headers = {"Authorization": f"token {TOKEN}"}
