@@ -18,6 +18,7 @@ import cv2
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
 from pathlib import Path
 import tempfile
+import requests
 import time  # 🆕 untuk efek progress spinner
 
 # ========== KONFIGURASI DASAR ==========
@@ -73,6 +74,48 @@ conn.commit()
 # ========== FUNGSI UTILITAS ==========
 def now_wib():
     return datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S")
+
+def backup_to_github(filename: str, content: bytes, commit_message="Auto backup from Streamlit"):
+    """
+    Menyimpan file backup (misal CSV atau DB) ke repository GitHub menggunakan API.
+    Pastikan kamu menyimpan token GitHub di st.secrets["GITHUB_TOKEN"].
+    """
+    GITHUB_USER = "USERNAME_KAMU"         # ganti dengan username GitHub kamu
+    GITHUB_REPO = "REPO_KAMU"             # ganti dengan nama repository
+    GITHUB_PATH = f"backup/{filename}"    # folder tujuan di repo
+    TOKEN = st.secrets["GITHUB_TOKEN"]
+
+    # API URL
+    url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{GITHUB_PATH}"
+
+    # Cek apakah file sudah ada
+    r = requests.get(url, headers={"Authorization": f"token {TOKEN}"})
+    sha = r.json().get("sha") if r.status_code == 200 else None
+
+    # Payload data
+    data = {
+        "message": commit_message,
+        "content": base64.b64encode(content).decode("utf-8"),
+        "branch": "main"
+    }
+    if sha:
+        data["sha"] = sha  # update file lama
+
+    res = requests.put(url, headers={"Authorization": f"token {TOKEN}"}, json=data)
+
+    if res.status_code in [200, 201]:
+        st.success("✅ Backup berhasil diunggah ke GitHub.")
+    else:
+        st.error(f"Gagal upload ke GitHub: {res.status_code} — {res.text}")
+
+def backup_database():
+    """Ekspor seluruh data produksi ke CSV dan upload ke GitHub"""
+    df = pd.read_sql_query("SELECT * FROM produksi", conn)
+    csv_bytes = df.to_csv(index=False).encode("utf-8")
+
+    filename = f"data_backup_{datetime.now(WIB).strftime('%Y%m%d_%H%M')}.csv"
+    backup_to_github(filename, csv_bytes, commit_message=f"Backup otomatis {filename}")
+
 
 def safe_path(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -239,7 +282,8 @@ elif "batch_id" in query_params:
 
 # Sidebar navigation
 menu = st.sidebar.radio("Navigasi", available_menus, index=available_menus.index(default_menu))
-
+if st.sidebar.button("💾 Backup ke GitHub"):
+    backup_database()
 
 # ---------- TAMBAH DATA ----------
 if menu == "Tambah Data":
