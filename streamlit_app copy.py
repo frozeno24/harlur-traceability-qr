@@ -9,10 +9,11 @@ from datetime import datetime, timedelta
 import cv2
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
 
-# ========== CONFIG ==========
+# ========== KONFIGURASI DASAR ==========
+st.set_page_config(page_title="Harlur Coffee QR Traceability", layout="wide")
+
 DB_PATH = "data_produksi.db"
 os.makedirs("qr_codes", exist_ok=True)
-st.set_page_config(page_title="Harlur Coffee QR Traceability", layout="wide")
 
 # ========== DATABASE ==========
 conn = sqlite3.connect(DB_PATH)
@@ -33,7 +34,7 @@ CREATE TABLE IF NOT EXISTS produksi (
 """)
 conn.commit()
 
-# ========== FUNCTIONS ==========
+# ========== FUNGSI ==========
 def tambah_data(batch_id, tanggal, pic, tempat, varian, lokasi_gudang, expired_date):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cursor.execute("""
@@ -44,8 +45,9 @@ def tambah_data(batch_id, tanggal, pic, tempat, varian, lokasi_gudang, expired_d
     """, (batch_id, tanggal, pic, tempat, varian, lokasi_gudang, expired_date, timestamp, timestamp))
     conn.commit()
 
-    # generate QR code
-    link = f"https://harlur-traceability.streamlit.app/?menu=Consumer%20View&batch_id={batch_id}"
+    # QR langsung ke consumer view
+    link = f"https://harlur-traceability.streamlit.app/?batch_id={batch_id}"
+
     qr = qrcode.QRCode(box_size=10, border=2)
     qr.add_data(link)
     qr.make(fit=True)
@@ -81,6 +83,7 @@ def update_data(batch_id, tempat, varian, lokasi_gudang, expired_date):
     """, (tempat, varian, lokasi_gudang, expired_date, updated_at, batch_id))
     conn.commit()
 
+
 def status_expired(expired_date_str):
     try:
         exp_date = datetime.strptime(expired_date_str, "%Y-%m-%d")
@@ -95,10 +98,26 @@ def status_expired(expired_date_str):
     except Exception:
         return "⏳ Tidak valid"
 
-# ========== SIDEBAR ==========
+
+# ========== SIDEBAR & DETEKSI QR LINK ==========
+query_params = dict(st.query_params)
+batch_id_from_url = query_params.get("batch_id")
+if isinstance(batch_id_from_url, list):
+    batch_id_from_url = batch_id_from_url[0]
+
+# Jika dibuka dari QR, langsung arahkan ke Consumer View
+if batch_id_from_url:
+    st.session_state["force_consumer"] = True
+else:
+    st.session_state["force_consumer"] = False
+
 st.sidebar.image("logo_harlur.png", width=130)
 st.sidebar.markdown("### Harlur Coffee Traceability")
-menu = st.sidebar.radio("Navigasi", ["Tambah Data", "Lihat Data", "Edit Data", "Scan QR Realtime", "Consumer View"])
+
+if st.session_state.get("force_consumer"):
+    menu = "Consumer View"
+else:
+    menu = st.sidebar.radio("Navigasi", ["Tambah Data", "Lihat Data", "Edit Data", "Scan QR Realtime", "Consumer View"])
 
 # ========== TAMBAH DATA ==========
 if menu == "Tambah Data":
@@ -131,18 +150,55 @@ if menu == "Tambah Data":
 # ========== LIHAT DATA ==========
 elif menu == "Lihat Data":
     st.subheader("📋 Daftar Data Produksi")
+
+    # ======== Styling tabel hitam-putih elegan ========
+    st.markdown("""
+    <style>
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+        border: 1px solid #ddd;
+    }
+    thead th {
+        background-color: #000000 !important;   /* Hitam solid */
+        color: #FFFFFF !important;              /* Teks putih */
+        text-align: center !important;
+        padding: 10px !important;
+        border: 1px solid #333 !important;
+        font-weight: 600;
+    }
+    tbody td {
+        text-align: center !important;
+        padding: 8px !important;
+        border: 1px solid #ddd !important;
+        color: #000000 !important;
+    }
+    tbody tr:nth-child(even) {
+        background-color: #f7f7f7 !important;   /* Abu terang */
+    }
+    tbody tr:nth-child(odd) {
+        background-color: #ffffff !important;   /* Putih */
+    }
+    tbody tr:hover {
+        background-color: #e8e8e8 !important;   /* Efek hover */
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     df = pd.read_sql_query("SELECT * FROM produksi", conn)
 
     if not df.empty:
         df["QR_Code_Path"] = df["batch_id"].apply(lambda x: f"qr_codes/{x}.png")
 
+        # fungsi gambar QR
         def make_img_tag(path):
             if os.path.exists(path):
                 with open(path, "rb") as f:
                     img_b64 = base64.b64encode(f.read()).decode()
-                    return f'<img src="data:image/png;base64,{img_b64}" width="100">'
+                    return f'<img src="data:image/png;base64,{img_b64}" width="90">'
             else:
-                return "❌ Tidak ditemukan"
+                return "❌"
 
         df["Status"] = df["expired_date"].apply(status_expired)
         df["QR_Code"] = df["QR_Code_Path"].apply(make_img_tag)
@@ -155,6 +211,7 @@ elif menu == "Lihat Data":
             "Timestamp", "Batch ID", "Tanggal", "PIC", "Tempat Produksi",
             "Varian", "Lokasi Gudang", "Kedaluwarsa", "Status", "Last Updated", "QR Code"
         ]
+
         st.markdown(df_display.to_html(escape=False, index=False), unsafe_allow_html=True)
     else:
         st.info("Belum ada data produksi tersimpan.")
@@ -164,8 +221,7 @@ elif menu == "Edit Data":
     st.subheader("✏️ Edit Data Produksi")
     df = pd.read_sql_query("SELECT * FROM produksi", conn)
     if not df.empty:
-        batch_list = df["batch_id"].tolist()
-        selected_batch = st.selectbox("Pilih Batch ID untuk Diedit", batch_list)
+        selected_batch = st.selectbox("Pilih Batch ID", df["batch_id"].tolist())
         data = get_batch_info(selected_batch)
         if data is not None:
             info = data.iloc[0]
@@ -194,8 +250,13 @@ elif menu == "Scan QR Realtime":
                 self.qr_result = data
             return frame
 
-    ctx = webrtc_streamer(key="scanner", mode=WebRtcMode.SENDRECV, video_processor_factory=QRScanner,
-                          media_stream_constraints={"video": True, "audio": False}, async_processing=True)
+    ctx = webrtc_streamer(
+        key="scanner",
+        mode=WebRtcMode.SENDRECV,
+        video_processor_factory=QRScanner,
+        media_stream_constraints={"video": True, "audio": False},
+        async_processing=True
+    )
 
     if ctx.video_processor and ctx.video_processor.qr_result:
         st.success(f"QR Code Terbaca: {ctx.video_processor.qr_result}")
@@ -203,26 +264,21 @@ elif menu == "Scan QR Realtime":
             batch_id = ctx.video_processor.qr_result.split("=")[-1]
             data = get_batch_info(batch_id)
             if data is not None:
-                info = data.iloc[0]
                 st.write("### Informasi Batch")
-                st.json({
-                    "Batch ID": info["batch_id"],
-                    "Tanggal": info["tanggal"],
-                    "Tempat Produksi": info["tempat_produksi"],
-                    "Varian": info["varian_produksi"],
-                    "PIC": info["pic"],
-                    "Lokasi Gudang": info["lokasi_gudang"],
-                    "Expired Date": info["expired_date"]
-                })
+                st.dataframe(data)
             else:
                 st.warning("Batch ID tidak ditemukan.")
 
 # ========== CONSUMER VIEW ==========
 elif menu == "Consumer View":
     st.title("Informasi Produk Harlur Coffee")
-    query_params = st.query_params
-    if "batch_id" in query_params:
-        batch_id = query_params["batch_id"]
+
+    query_params = dict(st.query_params)
+    batch_id = query_params.get("batch_id")
+    if isinstance(batch_id, list):
+        batch_id = batch_id[0]
+
+    if batch_id:
         data = get_batch_info(batch_id)
         if data is not None:
             info = data.iloc[0]
