@@ -125,6 +125,53 @@ def backup_database():
     zip_filename = f"qr_backup_{timestamp}.zip"
     backup_to_github(zip_filename, qr_zip_bytes.getvalue(), f"Backup otomatis QR {timestamp}")
 
+def restore_from_github(csv_filename: str, zip_filename: str):
+    """
+    Mengunduh file backup (CSV dan ZIP QR) dari GitHub
+    dan mengembalikannya ke database & folder QR.
+    """
+    GITHUB_USER = "USERNAME_KAMU"     # Ganti dengan username kamu
+    GITHUB_REPO = "REPO_KAMU"         # Ganti dengan repo kamu
+    TOKEN = st.secrets["GITHUB_TOKEN"]
+
+    headers = {"Authorization": f"token {TOKEN}"}
+
+    try:
+        # ==== 1️⃣ Unduh file CSV ====
+        url_csv = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/backup/{csv_filename}"
+        res_csv = requests.get(url_csv, headers=headers)
+        if res_csv.status_code != 200:
+            st.error(f"Gagal mengunduh CSV: {res_csv.status_code}")
+            return
+
+        csv_content = base64.b64decode(res_csv.json()["content"])
+        df = pd.read_csv(io.BytesIO(csv_content))
+
+        # Kosongkan tabel lama & isi ulang data
+        cursor.execute("DELETE FROM produksi")
+        conn.commit()
+        df.to_sql("produksi", conn, if_exists="append", index=False)
+        conn.commit()
+        st.success(f"✅ Database berhasil dipulihkan dari {csv_filename}")
+
+        # ==== 2️⃣ Unduh file ZIP QR ====
+        url_zip = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/backup/{zip_filename}"
+        res_zip = requests.get(url_zip, headers=headers)
+        if res_zip.status_code != 200:
+            st.warning("CSV berhasil direstore, tapi file QR ZIP tidak ditemukan.")
+            return
+
+        zip_content = base64.b64decode(res_zip.json()["content"])
+
+        # Ekstrak ke folder QR_DIR
+        with zipfile.ZipFile(io.BytesIO(zip_content), "r") as zip_ref:
+            zip_ref.extractall(QR_DIR)
+        st.success(f"📦 QR Code berhasil direstore dari {zip_filename}")
+
+        log_activity(f"Restore dari backup {csv_filename}")
+    except Exception as e:
+        st.error(f"❌ Gagal melakukan restore: {e}")
+
 
 def safe_path(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -345,28 +392,32 @@ if menu == "Tambah Data":
                             st.error(f"Terjadi kesalahan saat menyimpan data: {e}")
 
 # ---------- LIHAT DATA ----------
+# ---------- LIHAT DATA ----------
 elif menu == "Lihat Data":
     st.subheader("📋 Daftar Data Produksi")
     df = pd.read_sql_query("SELECT * FROM produksi ORDER BY id DESC", conn)
+
     if not df.empty:
+        # ==== TAMPILKAN DATA ====
         df["QR_Code"] = df["batch_id"].apply(
             lambda x: f'<img src="data:image/png;base64,{base64.b64encode(open(QR_DIR / f"{x}.png","rb").read()).decode()}" width="70">'
             if (QR_DIR / f"{x}.png").exists() else "❌"
         )
         df["Status"] = df["expired_date"].apply(status_expired)
-        df_display = df[["timestamp", "batch_id", "tanggal", "pic", "tempat_produksi",
-                         "varian_produksi", "lokasi_gudang", "expired_date", "Status", "updated_at", "QR_Code"]]
-        df_display.columns = ["Timestamp", "Batch ID", "Tanggal", "PIC", "Tempat", "Varian",
-                              "Gudang", "Kedaluwarsa", "Status", "Last Updated", "QR Code"]
+        df_display = df[[
+            "timestamp", "batch_id", "tanggal", "pic", "tempat_produksi",
+            "varian_produksi", "lokasi_gudang", "expired_date", "Status", "updated_at", "QR_Code"
+        ]]
+        df_display.columns = [
+            "Timestamp", "Batch ID", "Tanggal", "PIC", "Tempat", "Varian",
+            "Gudang", "Kedaluwarsa", "Status", "Last Updated", "QR Code"
+        ]
 
         st.markdown(df_display.to_html(escape=False, index=False), unsafe_allow_html=True)
         st.download_button("📦 Ekspor ke CSV", df.to_csv(index=False).encode("utf-8"),
                            "data_produksi.csv", "text/csv")
 
-        # Pilih batch untuk ekspor PDF
         selected_pdf = st.selectbox("Pilih Batch untuk Ekspor PDF", df["batch_id"].tolist())
-
-        # Tombol ekspor ke PDF
         if st.button("📄 Ekspor ke PDF"):
             pdf_path = export_pdf(selected_pdf)
             if pdf_path and pdf_path.exists():
@@ -377,6 +428,32 @@ elif menu == "Lihat Data":
                         file_name=f"{selected_pdf}.pdf",
                         mime="application/pdf"
                     )
+
+        # ==== MENU BACKUP & RESTORE ====
+        st.markdown("---")
+        st.subheader("💾 Backup & Restore Data")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.info("Backup akan menyimpan data terbaru dan QR Code ke GitHub (folder `backup/`).")
+            if st.button("🚀 Backup Manual Sekarang"):
+                with st.spinner("Mengunggah backup ke GitHub..."):
+                    try:
+                        backup_database()
+                    except Exception as e:
+                        st.error(f"Gagal melakukan backup manual: {e}")
+
+        with col2:
+            st.info("Restore akan mengembalikan database dari file backup yang tersimpan di GitHub.")
+            csv_name = st.text_input("Nama file CSV backup (misal: data_backup_20251110_2124.csv)")
+            zip_name = st.text_input("Nama file ZIP QR (misal: qr_backup_20251110_2124.zip)")
+            if st.button("🔄 Jalankan Restore dari GitHub"):
+                with st.spinner("Mengunduh dan memulihkan data dari GitHub..."):
+                    try:
+                        restore_from_github(csv_name, zip_name)
+                    except Exception as e:
+                        st.error(f"Gagal melakukan restore: {e}")
 
     else:
         st.info("Belum ada data produksi.")
