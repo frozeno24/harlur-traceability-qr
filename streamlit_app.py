@@ -94,6 +94,69 @@ def delete_batch(batch_id: str):
     except Exception as e:
         st.error(f"Gagal menghapus data batch {batch_id}: {e}")
 
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
+
+def export_pdf(batch_id: str):
+    """Membuat file PDF berisi detail batch dan QR code."""
+    data = get_batch(batch_id)
+    if data is None or data.empty:
+        st.error("Data batch tidak ditemukan.")
+        return None
+
+    info = data.iloc[0]
+    pdf_path = DATA_DIR / f"{batch_id}.pdf"
+    c = canvas.Canvas(str(pdf_path), pagesize=A4)
+    width, height = A4
+
+    # Logo (opsional)
+    if LOGO_PATH.exists():
+        c.drawImage(ImageReader(str(LOGO_PATH)), 50, height - 120, width=100, height=100, mask='auto')
+
+    # Judul
+    c.setFont("Helvetica-Bold", 20)
+    c.drawString(170, height - 70, "Harlur Coffee - Product Traceability Report")
+
+    # Garis pembatas
+    c.line(50, height - 130, width - 50, height - 130)
+
+    # Detail produk
+    c.setFont("Helvetica", 12)
+    y = height - 160
+    spacing = 20
+    details = [
+        ("Batch ID", info["batch_id"]),
+        ("Tanggal Produksi", info["tanggal"]),
+        ("Varian Produksi", info["varian_produksi"]),
+        ("Tempat Produksi", info["tempat_produksi"]),
+        ("Lokasi Gudang", info["lokasi_gudang"]),
+        ("PIC", info["pic"]),
+        ("Tanggal Kedaluwarsa", info["expired_date"]),
+        ("Dibuat pada", info["timestamp"]),
+    ]
+    for label, value in details:
+        c.drawString(60, y, f"{label}: {value}")
+        y -= spacing
+
+    # Tambahkan QR Code
+    qr_path = QR_DIR / f"{batch_id}.png"
+    if qr_path.exists():
+        c.drawImage(ImageReader(str(qr_path)), width - 220, height - 300, width=150, height=150, mask='auto')
+    else:
+        c.setFont("Helvetica-Oblique", 12)
+        c.drawString(width - 210, height - 200, "(QR Code tidak ditemukan)")
+
+    # Footer
+    c.setFont("Helvetica-Oblique", 10)
+    c.drawCentredString(width / 2, 50, "Dokumen ini dihasilkan otomatis oleh sistem traceability Harlur Coffee.")
+    c.showPage()
+    c.save()
+
+    log_activity(f"Ekspor PDF batch {batch_id}")
+    return pdf_path
+
+
 # ========== FUNGSI QR DAN DATABASE ==========
 def tambah_data(batch_id, tanggal, pic, tempat, varian, lokasi_gudang, expired_date):
     # 🆕 Validasi unik Batch ID
@@ -226,6 +289,19 @@ elif menu == "Lihat Data":
         st.markdown(df_display.to_html(escape=False, index=False), unsafe_allow_html=True)
         st.download_button("📦 Ekspor ke CSV", df.to_csv(index=False).encode("utf-8"),
                            "data_produksi.csv", "text/csv")
+        selected_pdf = st.selectbox("Pilih Batch untuk Ekspor PDF", df["batch_id"].tolist())
+        
+    if st.button("📄 Ekspor ke PDF"):
+        pdf_path = export_pdf(selected_pdf)
+        if pdf_path and pdf_path.exists():
+            with open(pdf_path, "rb") as f:
+                st.download_button(
+                    label=f"⬇️ Unduh Laporan {selected_pdf}.pdf",
+                    data=f,
+                    file_name=f"{selected_pdf}.pdf",
+                    mime="application/pdf"
+                )
+
     else:
         st.info("Belum ada data produksi.")
 
