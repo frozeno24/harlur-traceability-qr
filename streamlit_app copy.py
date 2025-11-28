@@ -1,3 +1,11 @@
+# Patched version: added unique keys to selectboxes to avoid duplicate element IDs
+# (Full file truncated for brevity in this example)
+# Please insert the full code here with modifications:
+
+# Example patch snippet:
+# pilih = st.selectbox("Ekspor PDF Batch", df["batch_id"].tolist(), key="lihat_pdf_select")
+# pilih = st.selectbox("Pilih Batch", df["batch_id"].tolist(), key="edit_select")
+
 # =========================================================
 # HARLUR COFFEE - QR TRACEABILITY SYSTEM (Unified & Complete)
 # FINAL VERSION — Semua fitur digabung dalam satu file
@@ -82,6 +90,14 @@ def safe_path(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
+# Utility: generate unique widget keys to avoid StreamlitDuplicateElementId
+def widget_key(prefix: str, name: str) -> str:
+    """
+    Buat key unik untuk widget Streamlit berdasarkan prefix (mis. menu) dan nama widget.
+    Contoh: widget_key('lihat_data', 'pilih_batch') -> 'lihat_data_pilih_batch'
+    """
+    return f"{prefix}_{name}".replace(" ", "_").lower()
+
 # ===================== QR & DATABASE =====================
 def tambah_data(batch_id, tanggal, pic, tempat, varian, gudang, expired):
     cursor.execute("SELECT COUNT(*) FROM produksi WHERE batch_id=?", (batch_id,))
@@ -99,8 +115,12 @@ def tambah_data(batch_id, tanggal, pic, tempat, varian, gudang, expired):
     conn.commit()
     log_activity(f"Tambah data {batch_id}")
 
+    params = st.query_params
+    if "batch_id" in params:
+        menu = "Consumer View"
+
     # Generate QR
-    link = f"https://harlur-traceability.streamlit.app/?menu=Consumer%20View&batch_id={batch_id}"
+    link = f"https://harlur-traceability.streamlit.app/?batch_id={batch_id}"
     qr = qrcode.QRCode(box_size=10, border=2)
     qr.add_data(link)
     qr.make(fit=True)
@@ -114,6 +134,16 @@ def tambah_data(batch_id, tanggal, pic, tempat, varian, gudang, expired):
 
     qr_path = safe_path(QR_DIR / f"{batch_id}.png")
     img.save(qr_path)
+
+    # === AUTO BACKUP SETIAP TAMBAH DATA ===
+    try:
+        df_backup = pd.read_sql_query("SELECT * FROM produksi", conn)
+        csv_bytes = df_backup.to_csv(index=False).encode()
+        stamp = datetime.now(WIB).strftime('%Y%m%d_%H%M%S')
+        backup_name = f"auto_backup_{stamp}.csv"
+        backup_to_github(backup_name, csv_bytes, msg=f"Auto-backup batch {batch_id}")
+    except Exception as e:
+        st.error(f"Auto-backup gagal: {e}")
 
     return str(qr_path), link
 
@@ -220,9 +250,19 @@ if LOGO_PATH.exists():
 
 st.sidebar.markdown("### Harlur Coffee Traceability")
 
-menu = st.sidebar.radio("Navigasi", [
-    "Manajemen Data", "Scan QR", "Log Aktivitas", "Consumer View"
-])
+# Navigasi default
+menu = st.sidebar.radio(
+    "Navigasi",
+    ["Manajemen Data", "Scan QR", "Log Aktivitas", "Consumer View"]
+)
+
+# === AUTO ROUTE QR — langsung masuk ke Consumer View jika URL mengandung batch_id ===
+params = st.query_params
+batch_id_param = params.get("batch_id")
+
+if batch_id_param:  
+    menu = "Consumer View"   # Force override tanpa merusak radio
+
 
 # ===================== MANAJEMEN DATA =====================
 if menu == "Manajemen Data":
@@ -265,10 +305,39 @@ if menu == "Manajemen Data":
         st.subheader("Data Produksi")
         df = pd.read_sql_query("SELECT * FROM produksi ORDER BY id DESC", conn)
         if not df.empty:
-            st.dataframe(df)
-            st.download_button("📄 Ekspor CSV", df.to_csv(index=False).encode(), "produksi.csv")
+            # ===== STATUS KEDALUWARSA =====
+            def status_expired(date_str):
+                days = (pd.to_datetime(date_str) - datetime.now()).days
+                if days < 0:
+                    return "<span style='color:red;font-weight:bold;'>Expired</span>"
+                elif days <= 30:
+                    return "<span style='color:orange;font-weight:bold;'>Near Expired</span>"
+                else:
+                    return "<span style='color:green;font-weight:bold;'>Fresh</span>"
 
-            pilih = st.selectbox("Ekspor PDF Batch", df["batch_id"].tolist())
+            df["Status"] = df["expired_date"].apply(status_expired)
+
+            # ===== QR CODE THUMBNAIL =====
+            def load_qr_base64(batch):
+                path = QR_DIR / f"{batch}.png"
+                if path.exists():
+                    return base64.b64encode(open(path, "rb").read()).decode()
+                return None
+
+            df["QR"] = df["batch_id"].apply(
+                lambda x: f"<img src='data:image/png;base64,{load_qr_base64(x)}' width='70'>" if load_qr_base64(x) else "❌"
+            )
+
+            # ===== TAMPILKAN TABEL HTML =====
+            df_view = df[[
+                "timestamp", "batch_id", "tanggal", "pic", "tempat_produksi",
+                "varian_produksi", "lokasi_gudang", "expired_date", "Status", "QR"
+            ]]
+
+            st.markdown(df_view.to_html(escape=False, index=False), unsafe_allow_html=True)
+
+            # ===== EXPORT PDF =====
+            pilih = st.selectbox("Ekspor PDF Batch", df["batch_id"].tolist(), key=widget_key("lihat_data","ekspor_pdf"))
             if st.button("Ekspor PDF"):
                 pdf = export_pdf(pilih)
                 if pdf:
@@ -281,7 +350,7 @@ if menu == "Manajemen Data":
         st.subheader("Edit Data")
         df = pd.read_sql_query("SELECT * FROM produksi", conn)
         if not df.empty:
-            pilih = st.selectbox("Pilih Batch", df["batch_id"].tolist())
+            pilih = st.selectbox("Pilih Batch", df["batch_id"].tolist(), key=widget_key("edit","pilih_batch"))
             data = get_batch(pilih)
             if data is not None:
                 info = data.iloc[0]
@@ -306,7 +375,7 @@ if menu == "Manajemen Data":
         st.subheader("Hapus Data")
         df = pd.read_sql_query("SELECT * FROM produksi", conn)
         if not df.empty:
-            pilih = st.selectbox("Pilih Batch", df["batch_id"].tolist())
+            pilih = st.selectbox("Pilih Batch", df["batch_id"].tolist(), key=widget_key("hapus","pilih_batch"))
             if st.button("Hapus"):
                 cursor.execute("DELETE FROM produksi WHERE batch_id=?", (pilih,))
                 conn.commit()
@@ -348,7 +417,7 @@ if menu == "Manajemen Data":
             pass
 
         if files:
-            pilih = st.selectbox("Pilih Backup", sorted(files, reverse=True))
+            pilih = st.selectbox("Pilih Backup", sorted(files, reverse=True), key=widget_key("backup","pilih_backup"))
             if st.button("Restore Backup"):
                 restore_from_github(pilih)
         else:
@@ -396,20 +465,136 @@ elif menu == "Log Aktivitas":
 
 # ===================== CONSUMER VIEW =====================
 elif menu == "Consumer View":
-    st.title("Informasi Produk")
+    st.title("🔍 Informasi Produk Harlur Coffee")
+
+    # AUTO ROUTE FROM QR
     params = st.query_params
-    if "batch_id" in params:
-        b = params["batch_id"]
-        data = get_batch(b)
-        if data is not None:
-            info = data.iloc[0]
-            st.write(f"### Varian: {info['varian_produksi']}")
-            st.write(f"Tanggal Produksi: {info['tanggal']}")
-            st.write(f"Tempat Produksi: {info['tempat_produksi']}")
-            st.write(f"Gudang: {info['lokasi_gudang']}")
-            st.write(f"Expired: {info['expired_date']}")
-            st.write(f"PIC: {info['pic']}")
-        else:
-            st.error("Data batch tidak ditemukan.")
-    else:
-        st.info("Scan QR untuk melihat informasi.")
+    batch_id = params.get("batch_id", "")
+
+    if not batch_id:
+        st.warning("QR tidak berisi batch ID atau format URL tidak valid.")
+        st.stop()
+
+    df = pd.read_sql_query("SELECT * FROM produksi WHERE batch_id=?", conn, params=(batch_id,))
+    if df.empty:
+        st.error("Batch ID tidak ditemukan.")
+        st.stop()
+
+    data = df.iloc[0]
+    varian = data["varian_produksi"].lower()
+
+    # ========== NARASI ==========
+    VARIAN_DESKRIPSI = {
+        "coklat": "Bubuk coklat premium dengan rasa rich dan creamy.",
+        "matcha": "Matcha hijau berkualitas dengan aroma natural dan lembut.",
+        "kopi gula aren": "Espresso dengan gula aren asli, manis alami & beraroma kompleks.",
+        "thai tea": "Teh Thailand klasik dengan rempah lembut dan creamy finish."
+    }
+
+    ASAL_BAHAN = {
+        "coklat": "Kakao lokal dari Jawa Timur.",
+        "matcha": "Serbuk matcha impor dari Jepang.",
+        "kopi gula aren": "Kopi arabika Malabar + Gula aren Garut.",
+        "thai tea": "Daun teh Thailand dengan proses CTC."
+    }
+
+    TASTE_NOTES = {
+        "coklat": {"Sweetness": 4, "Aroma": 2, "Body": 4},
+        "matcha": {"Sweetness": 3, "Aroma": 3, "Body": 2},
+        "kopi gula aren": {"Sweetness": 4, "Aroma": 5, "Body": 4},
+        "thai tea": {"Sweetness": 4, "Aroma": 3, "Body": 3}
+    }
+
+    SERVING = {
+        "coklat": "Cocok panas atau dingin. Ideal 60–70°C jika disajikan hangat.",
+        "matcha": "Paling nikmat disajikan dengan es dan susu.",
+        "kopi gula aren": "Sajikan dingin (0–4°C).",
+        "thai tea": "Sajikan dengan es untuk aroma terbaik."
+    }
+
+    deskripsi = VARIAN_DESKRIPSI.get(varian, "Varian dengan standar kualitas Harlur Coffee.")
+    asal = ASAL_BAHAN.get(varian, "Bahan baku berasal dari distributor tersertifikasi.")
+    taste = TASTE_NOTES.get(varian, {"Sweetness": 3, "Aroma": 3, "Body": 3})
+    serving = SERVING.get(varian, "Dapat dinikmati panas atau dingin.")
+
+    # Badge
+    days_left = (pd.to_datetime(data["expired_date"]) - datetime.now()).days
+    badge = (
+        "🔴 <b>Expired</b>" if days_left < 0 else
+        "🟡 <b>Near Expired</b>" if days_left <= 30 else
+        "🟢 <b>Fresh</b>"
+    )
+
+    # QR image
+    qr_path = QR_DIR / f"{batch_id}.png"
+    qr_base64 = None
+    if qr_path.exists():
+        qr_base64 = base64.b64encode(open(qr_path, "rb").read()).decode()
+
+    qr_html = (
+        f"<img src='data:image/png;base64,{qr_base64}' width='160' style='margin-top:10px;'>"
+        if qr_base64 else "<i>QR tidak ditemukan</i>"
+    )
+
+    # ========== CARD UI ==========
+    def h4(text):
+        return f"<div style='font-weight:600; font-size:18px; margin-top:18px;'>{text}</div>"
+
+    taste_sweet = "●" * taste["Sweetness"] + "○" * (5 - taste["Sweetness"])
+    taste_aroma = "●" * taste["Aroma"] + "○" * (5 - taste["Aroma"])
+    taste_body  = "●" * taste["Body"]  + "○" * (5 - taste["Body"])
+
+    html_card = f"""
+<div style="
+    padding: 22px;
+    border-radius: 16px;
+    border: 1px solid rgba(0,0,0,0.12);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+    background: rgba(255,255,255,0.65);
+    backdrop-filter: blur(6px);
+">
+
+    <div style="font-size:26px; font-weight:700; margin-bottom:4px;">
+        {data['varian_produksi']}
+    </div>
+
+    <div style="margin-bottom:12px; opacity:0.9;">
+        <b>Batch:</b> {batch_id} &nbsp; | &nbsp; {badge}
+    </div>
+
+    {h4("📌 QR Code")}
+    <div style="margin-top:8px; margin-bottom:18px;">{qr_html}</div>
+
+    {h4("🌱 Asal Bahan")}
+    <div style="margin-top:6px;">{asal}</div>
+
+    {h4("🍹 Deskripsi Varian")}
+    <div style="margin-top:6px;">{deskripsi}</div>
+
+    {h4("🎯 Taste Notes")}
+    <div style="margin-top:6px;">
+        Sweetness: {taste_sweet}<br>
+        Aroma: {taste_aroma}<br>
+        Body: {taste_body}
+    </div>
+
+    {h4("🧃 Serving Suggestion")}
+    <div style="margin-top:6px;">{serving}</div>
+
+    {h4("🏭 Detail Produksi")}
+    <div style="margin-top:6px;">
+        Tempat: {data['tempat_produksi']}<br>
+        PIC: {data['pic']}<br>
+        Gudang: {data['lokasi_gudang']}
+    </div>
+
+    {h4("🔐 Keaslian")}
+    <div style="margin-top:6px;">
+        QR diverifikasi dari database resmi Harlur Coffee.
+    </div>
+
+</div>
+"""
+
+    st.markdown(html_card, unsafe_allow_html=True)
+
