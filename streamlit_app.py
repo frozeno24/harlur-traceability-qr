@@ -537,7 +537,6 @@ elif menu == "Consumer View":
         if qr_base64 else "<i>QR tidak ditemukan</i>"
     )
 
-    # ========== CARD UI ==========
 # ========== CARD UI ==========
     def h4(text):
         return f"<div style='font-weight:600; font-size:18px; margin-top:18px;'>{text}</div>"
