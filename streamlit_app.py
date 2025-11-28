@@ -465,6 +465,7 @@ elif menu == "Log Aktivitas":
     st.dataframe(logs)
 
 # ===================== CONSUMER VIEW =====================
+# ===================== CONSUMER VIEW =====================
 elif menu == "Consumer View":
     st.title("🔍 Informasi Produk Harlur Coffee")
 
@@ -484,7 +485,7 @@ elif menu == "Consumer View":
     data = df.iloc[0]
     varian = data["varian_produksi"].lower()
 
-    # ========== NARASI ==========
+    # ========== LOGIKA DATA (NARASI) ==========
     VARIAN_DESKRIPSI = {
         "coklat": "Bubuk coklat premium dengan rasa rich dan creamy.",
         "matcha": "Matcha hijau berkualitas dengan aroma natural dan lembut.",
@@ -513,89 +514,103 @@ elif menu == "Consumer View":
         "thai tea": "Sajikan dengan es untuk aroma terbaik."
     }
 
+    # Fallback data jika varian tidak dikenali
     deskripsi = VARIAN_DESKRIPSI.get(varian, "Varian dengan standar kualitas Harlur Coffee.")
     asal = ASAL_BAHAN.get(varian, "Bahan baku berasal dari distributor tersertifikasi.")
     taste = TASTE_NOTES.get(varian, {"Sweetness": 3, "Aroma": 3, "Body": 3})
     serving = SERVING.get(varian, "Dapat dinikmati panas atau dingin.")
 
-    # Badge
-    days_left = (pd.to_datetime(data["expired_date"]) - datetime.now()).days
-    badge = (
-        "🔴 <b>Expired</b>" if days_left < 0 else
-        "🟡 <b>Near Expired</b>" if days_left <= 30 else
-        "🟢 <b>Fresh</b>"
-    )
+    # Hitung Expired & Badge HTML
+    days_left = (pd.to_datetime(data["expired_date"]) - datetime.now(WIB).replace(tzinfo=None)).days
+    
+    if days_left < 0:
+        badge = "<span style='color:red; font-weight:bold; background:#ffe6e6; padding:2px 6px; border-radius:4px;'>🔴 Expired</span>"
+    elif days_left <= 30:
+        badge = "<span style='color:orange; font-weight:bold; background:#fff5e6; padding:2px 6px; border-radius:4px;'>🟡 Near Expired</span>"
+    else:
+        badge = "<span style='color:green; font-weight:bold; background:#e6ffe6; padding:2px 6px; border-radius:4px;'>🟢 Fresh</span>"
 
-    # QR image
+    # Siapkan Gambar QR Base64
     qr_path = QR_DIR / f"{batch_id}.png"
     qr_base64 = None
     if qr_path.exists():
-        qr_base64 = base64.b64encode(open(qr_path, "rb").read()).decode()
+        with open(qr_path, "rb") as f:
+            qr_base64 = base64.b64encode(f.read()).decode()
 
     qr_html = (
-        f"<img src='data:image/png;base64,{qr_base64}' width='160' style='margin-top:10px;'>"
-        if qr_base64 else "<i>QR tidak ditemukan</i>"
+        f"<img src='data:image/png;base64,{qr_base64}' width='150' style='display:block; margin: 10px auto; border-radius:10px; border:1px solid #ddd;'>"
+        if qr_base64 else "<div style='text-align:center'><i>QR tidak ditemukan</i></div>"
     )
 
-# ========== CARD UI ==========
-    def h4(text):
-        return f"<div style='font-weight:600; font-size:18px; margin-top:18px;'>{text}</div>"
+    # Visualisasi Taste Notes (Bulatan)
+    def dots(score):
+        return "<span style='color:#8B4513;'>" + "●" * score + "</span>" + "<span style='color:#ccc;'>" + "○" * (5 - score) + "</span>"
 
-    taste_sweet = "●" * taste["Sweetness"] + "○" * (5 - taste["Sweetness"])
-    taste_aroma = "●" * taste["Aroma"] + "○" * (5 - taste["Aroma"])
-    taste_body  = "●" * taste["Body"]  + "○" * (5 - taste["Body"])
+    taste_sweet = dots(taste["Sweetness"])
+    taste_aroma = dots(taste["Aroma"])
+    taste_body  = dots(taste["Body"])
 
-    # PERBAIKAN DI SINI: Gunakan textwrap.dedent
-    html_card = textwrap.dedent(f"""
-    <div style="
-        padding: 22px;
-        border-radius: 16px;
-        border: 1px solid rgba(0,0,0,0.12);
-        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-        background: rgba(255,255,255,0.65);
-        backdrop-filter: blur(6px);
-    ">
-
-        <div style="font-size:26px; font-weight:700; margin-bottom:4px;">
-            {data['varian_produksi']}
-        </div>
-
-        <div style="margin-bottom:12px; opacity:0.9;">
-            <b>Batch:</b> {batch_id} &nbsp; | &nbsp; {badge}
-        </div>
-
-        {h4("📌 QR Code")}
-        <div style="margin-top:8px; margin-bottom:18px;">{qr_html}</div>
-
-        {h4("🌱 Asal Bahan")}
-        <div style="margin-top:6px;">{asal}</div>
-
-        {h4("🍹 Deskripsi Varian")}
-        <div style="margin-top:6px;">{deskripsi}</div>
-
-        {h4("🎯 Taste Notes")}
-        <div style="margin-top:6px;">
-            Sweetness: {taste_sweet}<br>
-            Aroma: {taste_aroma}<br>
-            Body: {taste_body}
-        </div>
-
-        {h4("🧃 Serving Suggestion")}
-        <div style="margin-top:6px;">{serving}</div>
-
-        {h4("🏭 Detail Produksi")}
-        <div style="margin-top:6px;">
-            Tempat: {data['tempat_produksi']}<br>
-            PIC: {data['pic']}<br>
-            Gudang: {data['lokasi_gudang']}
-        </div>
-
-        {h4("🔐 Keaslian")}
-        <div style="margin-top:6px;">
-            QR diverifikasi dari database resmi Harlur Coffee.
-        </div>
-
+    # ========== MEMBUAT HTML UI ==========
+    # KUNCI UTAMA: Import textwrap di atas, atau gunakan string rata kiri.
+    # Di sini saya gunakan string biasa tanpa indentasi di dalam HTML agar aman.
+    
+    html_card = f"""
+<div style="
+    padding: 24px;
+    border-radius: 16px;
+    border: 1px solid rgba(0,0,0,0.1);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+    background: linear-gradient(145deg, #ffffff, #f9f9f9);
+    font-family: sans-serif;
+    color: #333;
+    max-width: 500px;
+    margin: auto;
+">
+    <div style="text-align:center; margin-bottom:15px; border-bottom: 2px dashed #eee; padding-bottom: 15px;">
+        <h2 style="margin:0; color:#5D4037; font-size: 24px;">{data['varian_produksi']}</h2>
+        <p style="margin:8px 0; font-size:14px; color:#666;">
+            BATCH: <b>{batch_id}</b> &nbsp;|&nbsp; {badge}
+        </p>
     </div>
-    """) # Pastikan ditutup kurung dedent
 
+    <div style="text-align:center; margin-bottom:20px;">
+        {qr_html}
+    </div>
+
+    <div style="margin-bottom:15px;">
+        <div style="font-weight:700; color:#5D4037; font-size:16px; margin-bottom:4px;">🍹 Deskripsi</div>
+        <div style="font-size:14px; line-height:1.5;">{deskripsi}</div>
+    </div>
+
+    <div style="margin-bottom:15px;">
+        <div style="font-weight:700; color:#5D4037; font-size:16px; margin-bottom:4px;">🌱 Asal Bahan</div>
+        <div style="font-size:14px; line-height:1.5;">{asal}</div>
+    </div>
+
+    <div style="margin-bottom:15px; background:#f4f4f4; padding:12px; border-radius:8px;">
+        <div style="font-weight:700; color:#5D4037; font-size:16px; margin-bottom:8px; text-align:center;">🎯 Taste Notes</div>
+        <div style="display:flex; justify-content:space-between; font-size:14px;">
+            <div>Sweetness<br>{taste_sweet}</div>
+            <div>Aroma<br>{taste_aroma}</div>
+            <div>Body<br>{taste_body}</div>
+        </div>
+    </div>
+
+    <div style="margin-bottom:15px;">
+        <div style="font-weight:700; color:#5D4037; font-size:16px; margin-bottom:4px;">🏭 Detail Produksi</div>
+        <ul style="font-size:14px; margin:0; padding-left:20px; color:#444;">
+            <li><b>Tempat:</b> {data['tempat_produksi']}</li>
+            <li><b>PIC:</b> {data['pic']}</li>
+            <li><b>Gudang:</b> {data['lokasi_gudang']}</li>
+        </ul>
+    </div>
+    
+    <div style="margin-top:20px; font-size:12px; color:#999; text-align:center; border-top:1px solid #eee; padding-top:10px;">
+        ✅ Terverifikasi Harlur Coffee Traceability System
+    </div>
+</div>
+"""
+
+    # === INI BAGIAN TERPENTING ===
+    # Parameter unsafe_allow_html=True WAJIB ADA
     st.markdown(html_card, unsafe_allow_html=True)
