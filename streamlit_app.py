@@ -115,8 +115,12 @@ def tambah_data(batch_id, tanggal, pic, tempat, varian, gudang, expired):
     conn.commit()
     log_activity(f"Tambah data {batch_id}")
 
+    params = st.query_params
+    if "batch_id" in params:
+        menu = "Consumer View"
+
     # Generate QR
-    link = f"https://harlur-traceability.streamlit.app/?menu=Consumer%20View&batch_id={batch_id}"
+    link = f"https://harlur-traceability.streamlit.app/?batch_id={batch_id}"
     qr = qrcode.QRCode(box_size=10, border=2)
     qr.add_data(link)
     qr.make(fit=True)
@@ -130,6 +134,16 @@ def tambah_data(batch_id, tanggal, pic, tempat, varian, gudang, expired):
 
     qr_path = safe_path(QR_DIR / f"{batch_id}.png")
     img.save(qr_path)
+
+    # === AUTO BACKUP SETIAP TAMBAH DATA ===
+    try:
+        df_backup = pd.read_sql_query("SELECT * FROM produksi", conn)
+        csv_bytes = df_backup.to_csv(index=False).encode()
+        stamp = datetime.now(WIB).strftime('%Y%m%d_%H%M%S')
+        backup_name = f"auto_backup_{stamp}.csv"
+        backup_to_github(backup_name, csv_bytes, msg=f"Auto-backup batch {batch_id}")
+    except Exception as e:
+        st.error(f"Auto-backup gagal: {e}")
 
     return str(qr_path), link
 
@@ -237,6 +251,13 @@ if LOGO_PATH.exists():
 st.sidebar.markdown("### Harlur Coffee Traceability")
 
 menu = st.sidebar.radio("Navigasi", [
+    "Manajemen Data", "Scan QR", "Log Aktivitas", "Consumer View"
+])
+
+# === AUTO ROUTE QR: jika URL mengandung ?batch_id=XYZ maka langsung ke Consumer View ===
+params = st.experimental_get_query_params()
+if "batch_id" in params and params["batch_id"]:
+    menu = "Consumer View"("Navigasi", [
     "Manajemen Data", "Scan QR", "Log Aktivitas", "Consumer View"
 ])
 
@@ -443,7 +464,9 @@ elif menu == "Log Aktivitas":
 elif menu == "Consumer View":
     st.title("🔍 Informasi Produk Harlur Coffee")
 
-    batch_id = st.query_params.get("batch_id", [""])[0]
+    # AUTO ROUTE FROM QR
+    params = st.query_params
+    batch_id = params.get("batch_id", "")
 
     if not batch_id:
         st.warning("QR tidak berisi batch ID atau format URL tidak valid.")
@@ -457,9 +480,7 @@ elif menu == "Consumer View":
     data = df.iloc[0]
     varian = data["varian_produksi"].lower()
 
-    # =========================
-    # NARASI VARIAN
-    # =========================
+    # ========== NARASI ==========
     VARIAN_DESKRIPSI = {
         "coklat": "Bubuk coklat premium dengan rasa rich dan creamy.",
         "matcha": "Matcha hijau berkualitas dengan aroma natural dan lembut.",
@@ -484,64 +505,78 @@ elif menu == "Consumer View":
     SERVING = {
         "coklat": "Cocok panas atau dingin. Ideal 60–70°C jika disajikan hangat.",
         "matcha": "Paling nikmat disajikan dengan es dan susu.",
-        "kopi gula aren": "Sajikan dingin (0–4°C) untuk rasa terbaik.",
-        "thai tea": "Sajikan dengan es; aroma teh lebih kuat saat dingin."
+        "kopi gula aren": "Sajikan dingin (0–4°C).",
+        "thai tea": "Sajikan dengan es untuk aroma terbaik."
     }
 
-    # FALLBACK
     deskripsi = VARIAN_DESKRIPSI.get(varian, "Varian dengan standar kualitas Harlur Coffee.")
     asal = ASAL_BAHAN.get(varian, "Bahan baku berasal dari distributor tersertifikasi.")
     taste = TASTE_NOTES.get(varian, {"Sweetness": 3, "Aroma": 3, "Body": 3})
     serving = SERVING.get(varian, "Dapat dinikmati panas atau dingin.")
 
-    # =========================
-    # FRESHNESS BADGE
-    # =========================
+    # Badge
     days_left = (pd.to_datetime(data["expired_date"]) - datetime.now()).days
-    if days_left < 0:
-        badge = "🔴 **Expired**"
-    elif days_left <= 30:
-        badge = "🟡 **Near Expired**"
+    badge = (
+        "🔴 <b>Expired</b>" if days_left < 0 else
+        "🟡 <b>Near Expired</b>" if days_left <= 30 else
+        "🟢 <b>Fresh</b>"
+    )
+
+    # QR image
+    qr_path = QR_DIR / f"{batch_id}.png"
+    qr_base64 = None
+    if qr_path.exists():
+        qr_base64 = base64.b64encode(open(qr_path, "rb").read()).decode()
+
+    if qr_base64:
+        qr_html = f"<img src='data:image/png;base64,{qr_base64}' width='160' style='margin-top:10px;'>"
+    
     else:
-        badge = "🟢 **Fresh**"
+        qr_html = "<i>QR tidak ditemukan</i>"
 
-    # =========================
-    # CARD STYLE
-    # =========================
+
+    # ========== CARD UI ==========
+    # Precompute taste note strings to avoid f-string HTML conflicts
+    taste_sweet = "●" * taste["Sweetness"] + "○" * (5 - taste["Sweetness"])
+    taste_aroma = "●" * taste["Aroma"] + "○" * (5 - taste["Aroma"])
+    taste_body = "●" * taste["Body"] + "○" * (5 - taste["Body"]) 
+
     st.markdown(f"""
-    <div style="
-        padding: 20px;
-        border-radius: 15px;
-        border: 1px solid rgba(0,0,0,0.1);
-        backdrop-filter: blur(5px);
-    ">
-        <h2 style="margin-bottom:0;">{data['varian_produksi']}</h2>
-        <p style="margin-top:5px;"><b>Batch:</b> {batch_id} | {badge}</p>
+<div style="
+    padding: 20px;
+    border-radius: 15px;
+    border: 1px solid rgba(0,0,0,0.1);
+    backdrop-filter: blur(5px);
+">
+    <h2 style="margin-bottom:0;">{data['varian_produksi']}</h2>
+    <p style="margin-top:5px;"><b>Batch:</b> {batch_id} | {badge}</p>
 
-        <h4>🌱 Asal Bahan</h4>
-        <p>{asal}</p>
+    <h4>📌 QR Code</h4>
+    <div>{qr_html}</div>
 
-        <h4>🍹 Deskripsi Varian</h4>
-        <p>{deskripsi}</p>
+    <h4>🌱 Asal Bahan</h4>
+    <p>{asal}</p>
 
-        <h4>🎯 Taste Notes</h4>
-        <p>Sweetness: {"●" * taste["Sweetness"] + "○" * (5 - taste["Sweetness"])}<br>
-           Aroma: {"●" * taste["Aroma"] + "○" * (5 - taste["Aroma"])}<br>
-           Body: {"●" * taste["Body"] + "○" * (5 - taste["Body"])}
-        </p>
+    <h4>🍹 Deskripsi Varian</h4>
+    <p>{deskripsi}</p>
 
-        <h4>🧃 Serving Suggestion</h4>
-        <p>{serving}</p>
+    <h4>🎯 Taste Notes</h4>
+    <p>Sweetness: {"●" * taste["Sweetness"] + "○" * (5 - taste["Sweetness"])}<br>
+       Aroma: {"●" * taste["Aroma"] + "○" * (5 - taste["Aroma"])}<br>
+       Body: {"●" * taste["Body"] + "○" * (5 - taste["Body"])}
+    </p>
 
-        <h4>🏭 Detail Produksi</h4>
-        <p>
-            Tempat: {data['tempat_produksi']}<br>
-            PIC: {data['pic']}<br>
-            Gudang: {data['lokasi_gudang']}
-        </p>
+    <h4>🧃 Serving Suggestion</h4>
+    <p>{serving}</p>
 
-        <h4>🔐 Keaslian</h4>
-        <p>QR diverifikasi dari database resmi Harlur Coffee.</p>
-    </div>
-    """, unsafe_allow_html=True)
+    <h4>🏭 Detail Produksi</h4>
+    <p>
+        Tempat: {data['tempat_produksi']}<br>
+        PIC: {data['pic']}<br>
+        Gudang: {data['lokasi_gudang']}
+    </p>
 
+    <h4>🔐 Keaslian</h4>
+    <p>QR diverifikasi dari database resmi Harlur Coffee.</p>
+</div>
+""", unsafe_allow_html=True)
