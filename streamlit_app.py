@@ -537,49 +537,65 @@ elif menu == "Consumer View":
     else:
         qr_html = "<i>QR tidak ditemukan</i>"
 
+# ========== CARD UI ==========
 
-    # ========== CARD UI ==========
-    # Precompute taste note strings to avoid f-string HTML conflicts
-    taste_sweet = "●" * taste["Sweetness"] + "○" * (5 - taste["Sweetness"])
-    taste_aroma = "●" * taste["Aroma"] + "○" * (5 - taste["Aroma"])
-    taste_body = "●" * taste["Body"] + "○" * (5 - taste["Body"]) 
+# Helper heading style
+def h4(text):
+    return f"<div style='font-weight:600; font-size:18px; margin-top:18px;'>{text}</div>"
 
-    st.markdown(f"""
+# Precompute taste strings
+taste_sweet = "●" * taste["Sweetness"] + "○" * (5 - taste["Sweetness"])
+taste_aroma = "●" * taste["Aroma"] + "○" * (5 - taste["Aroma"])
+taste_body  = "●" * taste["Body"]  + "○" * (5 - taste["Body"])
+
+st.markdown(f"""
 <div style="
-    padding: 20px;
-    border-radius: 15px;
-    border: 1px solid rgba(0,0,0,0.1);
-    backdrop-filter: blur(5px);
+    padding: 22px;
+    border-radius: 16px;
+    border: 1px solid rgba(0,0,0,0.12);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+    background: rgba(255,255,255,0.65);
+    backdrop-filter: blur(6px);
 ">
-    <h2 style="margin-bottom:0;">{data['varian_produksi']}</h2>
-    <p style="margin-top:5px;"><b>Batch:</b> {batch_id} | {badge}</p>
 
-    <h4>📌 QR Code</h4>
-    <div>{qr_html}</div>
+    <div style="font-size:26px; font-weight:700; margin-bottom:4px;">
+        {data['varian_produksi']}
+    </div>
 
-    <h4>🌱 Asal Bahan</h4>
-    <p>{asal}</p>
+    <div style="margin-bottom:12px; opacity:0.9;">
+        <b>Batch:</b> {batch_id} &nbsp; | &nbsp; {badge}
+    </div>
 
-    <h4>🍹 Deskripsi Varian</h4>
-    <p>{deskripsi}</p>
+    {h4("📌 QR Code")}
+    <div style="margin-top:8px; margin-bottom:18px;">{qr_html}</div>
 
-    <h4>🎯 Taste Notes</h4>
-    <p>Sweetness: {"●" * taste["Sweetness"] + "○" * (5 - taste["Sweetness"])}<br>
-       Aroma: {"●" * taste["Aroma"] + "○" * (5 - taste["Aroma"])}<br>
-       Body: {"●" * taste["Body"] + "○" * (5 - taste["Body"])}
-    </p>
+    {h4("🌱 Asal Bahan")}
+    <div style="margin-top:6px;">{asal}</div>
 
-    <h4>🧃 Serving Suggestion</h4>
-    <p>{serving}</p>
+    {h4("🍹 Deskripsi Varian")}
+    <div style="margin-top:6px;">{deskripsi}</div>
 
-    <h4>🏭 Detail Produksi</h4>
-    <p>
+    {h4("🎯 Taste Notes")}
+    <div style="margin-top:6px;">
+        Sweetness: {taste_sweet}<br>
+        Aroma: {taste_aroma}<br>
+        Body: {taste_body}
+    </div>
+
+    {h4("🧃 Serving Suggestion")}
+    <div style="margin-top:6px;">{serving}</div>
+
+    {h4("🏭 Detail Produksi")}
+    <div style="margin-top:6px;">
         Tempat: {data['tempat_produksi']}<br>
         PIC: {data['pic']}<br>
         Gudang: {data['lokasi_gudang']}
-    </p>
+    </div>
 
-    <h4>🔐 Keaslian</h4>
-    <p>QR diverifikasi dari database resmi Harlur Coffee.</p>
+    {h4("🔐 Keaslian")}
+    <div style="margin-top:6px;">
+        QR diverifikasi dari database resmi Harlur Coffee.
+    </div>
+
 </div>
 """, unsafe_allow_html=True)
