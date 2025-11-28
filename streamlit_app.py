@@ -537,7 +537,6 @@ elif menu == "Consumer View":
     )
 
     # ========== CARD UI ==========
-
     def h4(text):
         return f"<div style='font-weight:600; font-size:18px; margin-top:18px;'>{text}</div>"
 
@@ -545,7 +544,7 @@ elif menu == "Consumer View":
     taste_aroma = "●" * taste["Aroma"] + "○" * (5 - taste["Aroma"])
     taste_body  = "●" * taste["Body"]  + "○" * (5 - taste["Body"])
 
-    st.markdown(f"""
+    html_card = f"""
 <div style="
     padding: 22px;
     border-radius: 16px;
@@ -595,4 +594,7 @@ elif menu == "Consumer View":
     </div>
 
 </div>
-""", unsafe_allow_html=True)
+"""
+
+    st.markdown(html_card, unsafe_allow_html=True)
+
