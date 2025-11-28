@@ -250,16 +250,19 @@ if LOGO_PATH.exists():
 
 st.sidebar.markdown("### Harlur Coffee Traceability")
 
-menu = st.sidebar.radio("Navigasi", [
-    "Manajemen Data", "Scan QR", "Log Aktivitas", "Consumer View"
-])
+# Navigasi default
+menu = st.sidebar.radio(
+    "Navigasi",
+    ["Manajemen Data", "Scan QR", "Log Aktivitas", "Consumer View"]
+)
 
-# === AUTO ROUTE QR: jika URL mengandung ?batch_id=XYZ maka langsung ke Consumer View ===
-params = st.experimental_get_query_params()
-if "batch_id" in params and params["batch_id"]:
-    menu = "Consumer View"("Navigasi", [
-    "Manajemen Data", "Scan QR", "Log Aktivitas", "Consumer View"
-])
+# === AUTO ROUTE QR — langsung masuk ke Consumer View jika URL mengandung batch_id ===
+params = st.query_params
+batch_id_param = params.get("batch_id")
+
+if batch_id_param:  
+    menu = "Consumer View"   # Force override tanpa merusak radio
+
 
 # ===================== MANAJEMEN DATA =====================
 if menu == "Manajemen Data":
