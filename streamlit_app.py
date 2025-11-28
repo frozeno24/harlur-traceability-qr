@@ -1,7 +1,6 @@
 # =========================================================
-# HARLUR COFFEE - QR TRACEABILITY SYSTEM
-# Deployment-safe version (Streamlit Cloud Compatible)
-# Last Updated: 2025-11-10
+# HARLUR COFFEE - QR TRACEABILITY SYSTEM (Unified & Complete)
+# FINAL VERSION — Semua fitur digabung dalam satu file
 # =========================================================
 
 import streamlit as st
@@ -19,14 +18,16 @@ from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
 from pathlib import Path
 import tempfile
 import requests
-import time  # 🆕 untuk efek progress spinner
+import time
 import zipfile
 import io
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
 
-# ========== KONFIGURASI DASAR ==========
+# ===================== KONFIGURASI DASAR =====================
 st.set_page_config(page_title="Harlur Coffee QR Traceability", layout="wide")
 
-# Gunakan direktori kerja yang writable (misalnya /tmp di Streamlit Cloud)
 BASE_DIR = Path(tempfile.gettempdir()) / "harlur_traceability"
 DATA_DIR = BASE_DIR / "app_data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -35,23 +36,20 @@ DB_PATH = DATA_DIR / "data_produksi.db"
 QR_DIR = DATA_DIR / "qr_codes"
 QR_DIR.mkdir(parents=True, exist_ok=True)
 
-# Path logo (gunakan Path agar lintas OS)
 LOGO_PATH = DATA_DIR / "logo_harlur.png"
 if not LOGO_PATH.exists():
-    LOGO_PATH = Path("logo_harlur.png")  # fallback jika logo di root
+    LOGO_PATH = Path("logo_harlur.png")
 
-# Set timezone ke WIB
 WIB = pytz.timezone("Asia/Jakarta")
 
-# ========== DATABASE ==========
+# ===================== DATABASE =====================
 conn = sqlite3.connect(DB_PATH)
 cursor = conn.cursor()
 
-# Tabel produksi
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS produksi (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    batch_id TEXT UNIQUE,  -- 🆕 Unik untuk mencegah duplikasi
+    batch_id TEXT UNIQUE,
     tanggal TEXT,
     pic TEXT,
     tempat_produksi TEXT,
@@ -63,7 +61,6 @@ CREATE TABLE IF NOT EXISTS produksi (
 )
 """)
 
-# Tabel log aktivitas
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS log_aktivitas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,523 +70,432 @@ CREATE TABLE IF NOT EXISTS log_aktivitas (
 """)
 conn.commit()
 
-# ========== FUNGSI UTILITAS ==========
+# ===================== UTILITAS =====================
 def now_wib():
     return datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S")
 
-def backup_to_github(filename: str, content: bytes, commit_message="Auto backup from Streamlit"):
-    """Upload file backup (CSV/ZIP) ke repository GitHub via API."""
-    GITHUB_USER = "frozeno24"     # Ganti dengan username GitHub kamu
-    GITHUB_REPO = "harlur-traceability-qr"         # Ganti dengan nama repo kamu
-    GITHUB_PATH = f"backup/{filename}"
-    TOKEN = st.secrets["GITHUB_TOKEN"]
-
-    url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{GITHUB_PATH}"
-
-    # Cek apakah file sudah ada
-    r = requests.get(url, headers={"Authorization": f"token {TOKEN}"})
-    sha = r.json().get("sha") if r.status_code == 200 else None
-
-    # Payload data
-    data = {
-        "message": commit_message,
-        "content": base64.b64encode(content).decode("utf-8"),
-        "branch": "main"
-    }
-    if sha:
-        data["sha"] = sha
-
-    res = requests.put(url, headers={"Authorization": f"token {TOKEN}"}, json=data)
-    if res.status_code in [200, 201]:
-        log_activity(f"Backup ke GitHub: {filename}")
-        st.success(f"✅ Backup berhasil diunggah ke GitHub ({filename})")
-    else:
-        st.error(f"Gagal upload ke GitHub: {res.status_code} — {res.text}")
-
-def backup_database():
-    """Ekspor data produksi dan QR code ke GitHub (CSV + ZIP)"""
-    df = pd.read_sql_query("SELECT * FROM produksi", conn)
-    csv_bytes = df.to_csv(index=False).encode("utf-8")
-    timestamp = datetime.now(WIB).strftime('%Y%m%d_%H%M')
-
-    # Backup CSV
-    csv_filename = f"data_backup_{timestamp}.csv"
-    backup_to_github(csv_filename, csv_bytes, f"Backup otomatis CSV {timestamp}")
-
-    # Backup semua QR Code ke ZIP
-    qr_zip_bytes = io.BytesIO()
-    with zipfile.ZipFile(qr_zip_bytes, "w", zipfile.ZIP_DEFLATED) as zf:
-        for qr_file in QR_DIR.glob("*.png"):
-            zf.write(qr_file, qr_file.name)
-    qr_zip_bytes.seek(0)
-    zip_filename = f"qr_backup_{timestamp}.zip"
-    backup_to_github(zip_filename, qr_zip_bytes.getvalue(), f"Backup otomatis QR {timestamp}")
-
-def restore_from_github(csv_filename: str, zip_filename: str):
-    """
-    Mengunduh file backup (CSV dan ZIP QR) dari GitHub
-    dan mengembalikannya ke database & folder QR.
-    """
-    GITHUB_USER = "USERNAME_KAMU"     # Ganti dengan username kamu
-    GITHUB_REPO = "REPO_KAMU"         # Ganti dengan repo kamu
-    TOKEN = st.secrets["GITHUB_TOKEN"]
-
-    headers = {"Authorization": f"token {TOKEN}"}
-
-    try:
-        # ==== 1️⃣ Unduh file CSV ====
-        url_csv = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/backup/{csv_filename}"
-        res_csv = requests.get(url_csv, headers=headers)
-        if res_csv.status_code != 200:
-            st.error(f"Gagal mengunduh CSV: {res_csv.status_code}")
-            return
-
-        csv_content = base64.b64decode(res_csv.json()["content"])
-        df = pd.read_csv(io.BytesIO(csv_content))
-
-        # Kosongkan tabel lama & isi ulang data
-        cursor.execute("DELETE FROM produksi")
-        conn.commit()
-        df.to_sql("produksi", conn, if_exists="append", index=False)
-        conn.commit()
-        st.success(f"✅ Database berhasil dipulihkan dari {csv_filename}")
-
-        # ==== 2️⃣ Unduh file ZIP QR ====
-        url_zip = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/backup/{zip_filename}"
-        res_zip = requests.get(url_zip, headers=headers)
-        if res_zip.status_code != 200:
-            st.warning("CSV berhasil direstore, tapi file QR ZIP tidak ditemukan.")
-            return
-
-        zip_content = base64.b64decode(res_zip.json()["content"])
-
-        # Ekstrak ke folder QR_DIR
-        with zipfile.ZipFile(io.BytesIO(zip_content), "r") as zip_ref:
-            zip_ref.extractall(QR_DIR)
-        st.success(f"📦 QR Code berhasil direstore dari {zip_filename}")
-
-        log_activity(f"Restore dari backup {csv_filename}")
-    except Exception as e:
-        st.error(f"❌ Gagal melakukan restore: {e}")
-
+def log_activity(desc):
+    cursor.execute("INSERT INTO log_aktivitas (waktu, deskripsi) VALUES (?, ?)", (now_wib(), desc))
+    conn.commit()
 
 def safe_path(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
-def log_activity(deskripsi: str):
-    waktu = now_wib()
-    cursor.execute("INSERT INTO log_aktivitas (waktu, deskripsi) VALUES (?, ?)", (waktu, deskripsi))
-    conn.commit()
-
-def delete_batch(batch_id: str):
-    try:
-        cursor.execute("DELETE FROM produksi WHERE batch_id = ?", (batch_id,))
-        conn.commit()
-        qr_path = QR_DIR / f"{batch_id}.png"
-        if qr_path.exists():
-            qr_path.unlink()
-        log_activity(f"Hapus data batch {batch_id}")
-    except Exception as e:
-        st.error(f"Gagal menghapus data batch {batch_id}: {e}")
-
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
-from reportlab.lib.utils import ImageReader
-
-def export_pdf(batch_id: str):
-    """Membuat file PDF berisi detail batch dan QR code."""
-    data = get_batch(batch_id)
-    if data is None or data.empty:
-        st.error("Data batch tidak ditemukan.")
-        return None
-
-    info = data.iloc[0]
-    pdf_path = DATA_DIR / f"{batch_id}.pdf"
-    c = canvas.Canvas(str(pdf_path), pagesize=A4)
-    width, height = A4
-
-    # Logo (opsional)
-    if LOGO_PATH.exists():
-        c.drawImage(ImageReader(str(LOGO_PATH)), 50, height - 120, width=100, height=100, mask='auto')
-
-    # Judul
-    c.setFont("Helvetica-Bold", 20)
-    c.drawString(170, height - 70, "Harlur Coffee - Product Traceability Report")
-
-    # Garis pembatas
-    c.line(50, height - 130, width - 50, height - 130)
-
-    # Detail produk
-    c.setFont("Helvetica", 12)
-    y = height - 160
-    spacing = 20
-    details = [
-        ("Batch ID", info["batch_id"]),
-        ("Tanggal Produksi", info["tanggal"]),
-        ("Varian Produksi", info["varian_produksi"]),
-        ("Tempat Produksi", info["tempat_produksi"]),
-        ("Lokasi Gudang", info["lokasi_gudang"]),
-        ("PIC", info["pic"]),
-        ("Tanggal Kedaluwarsa", info["expired_date"]),
-        ("Dibuat pada", info["timestamp"]),
-    ]
-    for label, value in details:
-        c.drawString(60, y, f"{label}: {value}")
-        y -= spacing
-
-    # Tambahkan QR Code
-    qr_path = QR_DIR / f"{batch_id}.png"
-    if qr_path.exists():
-        c.drawImage(ImageReader(str(qr_path)), width - 220, height - 300, width=150, height=150, mask='auto')
-    else:
-        c.setFont("Helvetica-Oblique", 12)
-        c.drawString(width - 210, height - 200, "(QR Code tidak ditemukan)")
-
-    # Footer
-    c.setFont("Helvetica-Oblique", 10)
-    c.drawCentredString(width / 2, 50, "Dokumen ini dihasilkan otomatis oleh sistem traceability Harlur Coffee.")
-    c.showPage()
-    c.save()
-
-    log_activity(f"Ekspor PDF batch {batch_id}")
-    return pdf_path
-
-
-# ========== FUNGSI QR DAN DATABASE ==========
-def tambah_data(batch_id, tanggal, pic, tempat, varian, lokasi_gudang, expired_date):
-    # 🆕 Validasi unik Batch ID
+# ===================== QR & DATABASE =====================
+def tambah_data(batch_id, tanggal, pic, tempat, varian, gudang, expired):
     cursor.execute("SELECT COUNT(*) FROM produksi WHERE batch_id=?", (batch_id,))
     if cursor.fetchone()[0] > 0:
-        st.error("⚠️ Batch ID sudah terdaftar, gunakan ID lain.")
+        st.error("Batch ID sudah ada.")
         return None, None
 
-    timestamp = now_wib()
+    ts = now_wib()
     cursor.execute("""
         INSERT INTO produksi (
             batch_id, tanggal, pic, tempat_produksi, varian_produksi,
             lokasi_gudang, expired_date, timestamp, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (batch_id, tanggal, pic, tempat, varian, lokasi_gudang, expired_date, timestamp, timestamp))
+    """, (batch_id, tanggal, pic, tempat, varian, gudang, expired, ts, ts))
     conn.commit()
-    log_activity(f"Tambah data batch {batch_id}")
+    log_activity(f"Tambah data {batch_id}")
 
-    # Generate QR code
+    # Generate QR
     link = f"https://harlur-traceability.streamlit.app/?menu=Consumer%20View&batch_id={batch_id}"
     qr = qrcode.QRCode(box_size=10, border=2)
     qr.add_data(link)
     qr.make(fit=True)
-    img_qr = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+    img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
 
     if LOGO_PATH.exists():
         logo = Image.open(LOGO_PATH)
-        basewidth = 80
-        wpercent = basewidth / float(logo.size[0])
-        hsize = int((float(logo.size[1]) * float(wpercent)))
-        logo = logo.resize((basewidth, hsize))
-        pos = ((img_qr.size[0] - logo.size[0]) // 2, (img_qr.size[1] - logo.size[1]) // 2)
-        img_qr.paste(logo, pos)
+        logo = logo.resize((80, 80))
+        pos = ((img.size[0]-80)//2, (img.size[1]-80)//2)
+        img.paste(logo, pos)
 
     qr_path = safe_path(QR_DIR / f"{batch_id}.png")
-    img_qr.save(qr_path)
+    img.save(qr_path)
+
     return str(qr_path), link
 
 def get_batch(batch_id):
-    query = "SELECT * FROM produksi WHERE batch_id = ?"
-    df = pd.read_sql_query(query, conn, params=(batch_id,))
+    df = pd.read_sql_query("SELECT * FROM produksi WHERE batch_id=?", conn, params=(batch_id,))
     return df if not df.empty else None
 
-def status_expired(expired_date_str):
-    try:
-        exp_date = datetime.strptime(expired_date_str, "%Y-%m-%d")
-        today = datetime.now(WIB).date()
-        delta = (exp_date.date() - today).days
-        if delta < 0:
-            return f"<span style='color:red;font-weight:bold;'>❌ Expired</span>"
-        elif delta <= 7:
-            return f"<span style='color:orange;font-weight:bold;'>⚠️ Hampir kedaluwarsa ({delta} hari lagi)</span>"
-        else:
-            return f"<span style='color:green;font-weight:bold;'>✅ Aman ({delta} hari lagi)</span>"
-    except Exception:
-        return "⏳ Tidak valid"
+# ===================== BACKUP & RESTORE =====================
+def backup_to_github(filename: str, content: bytes, msg="Auto Backup"):
+    GITHUB_USER = "frozeno24"
+    GITHUB_REPO = "harlur-traceability-qr"
+    TOKEN = st.secrets["GITHUB_TOKEN"]
 
-# ========== SIDEBAR ==========
+    url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/backup/{filename}"
+    headers = {"Authorization": f"token {TOKEN}"}
+
+    r = requests.get(url, headers=headers)
+    sha = r.json().get("sha") if r.status_code == 200 else None
+
+    data = {
+        "message": msg,
+        "content": base64.b64encode(content).decode(),
+        "branch": "main"
+    }
+    if sha:
+        data["sha"] = sha
+
+    res = requests.put(url, headers=headers, json=data)
+    if res.status_code not in [200, 201]:
+        st.error(f"Gagal backup: {res.text}")
+    else:
+        st.success(f"Backup berhasil: {filename}")
+        log_activity(f"Backup ke GitHub {filename}")
+
+def restore_from_github(csv_filename, zip_filename=None):
+    GITHUB_USER = "frozeno24"
+    GITHUB_REPO = "harlur-traceability-qr"
+    TOKEN = st.secrets["GITHUB_TOKEN"]
+    headers = {"Authorization": f"token {TOKEN}"}
+
+    # Restore CSV
+    url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/backup/{csv_filename}"
+    res = requests.get(url, headers=headers)
+    if res.status_code != 200:
+        st.error("CSV tidak ditemukan di GitHub.")
+        return
+
+    content = base64.b64decode(res.json()["content"])
+    df = pd.read_csv(io.BytesIO(content))
+
+    cursor.execute("DELETE FROM produksi")
+    conn.commit()
+    df.to_sql("produksi", conn, if_exists="append", index=False)
+    conn.commit()
+
+    st.success("Restore database selesai.")
+    log_activity(f"Restore dari {csv_filename}")
+
+# ===================== PDF EXPORT =====================
+def export_pdf(batch_id: str):
+    data = get_batch(batch_id)
+    if data is None:
+        st.error("Batch tidak ditemukan.")
+        return
+
+    info = data.iloc[0]
+    pdf_path = DATA_DIR / f"{batch_id}.pdf"
+    c = canvas.Canvas(str(pdf_path), pagesize=A4)
+    w, h = A4
+
+    if LOGO_PATH.exists():
+        c.drawImage(ImageReader(str(LOGO_PATH)), 40, h-120, width=100, height=100)
+
+    c.setFont("Helvetica-Bold", 20)
+    c.drawString(150, h-60, "Harlur Coffee - Product Report")
+
+    y = h - 150
+    details = [
+        ("Batch ID", info["batch_id"]),
+        ("Tanggal Produksi", info["tanggal"]),
+        ("Varian", info["varian_produksi"]),
+        ("Tempat", info["tempat_produksi"]),
+        ("Gudang", info["lokasi_gudang"]),
+        ("Expired", info["expired_date"]),
+        ("PIC", info["pic"]),
+    ]
+
+    c.setFont("Helvetica", 12)
+    for label, val in details:
+        c.drawString(50, y, f"{label}: {val}")
+        y -= 22
+
+    qr_path = QR_DIR / f"{batch_id}.png"
+    if qr_path.exists():
+        c.drawImage(ImageReader(str(qr_path)), w-220, h-300, width=150, height=150)
+
+    c.showPage()
+    c.save()
+    return pdf_path
+
+# ===================== SIDEBAR =====================
 if LOGO_PATH.exists():
-    st.sidebar.image(str(LOGO_PATH), width=130)
+    st.sidebar.image(str(LOGO_PATH), width=140)
+
 st.sidebar.markdown("### Harlur Coffee Traceability")
 
-# 🆕 Perbaikan navigasi otomatis dari query params
-query_params = st.query_params
-available_menus = [
-    "Tambah Data", "Lihat Data", "Edit / Hapus Data",
-    "Scan QR", "Log Aktivitas", "Consumer View"
-]
+menu = st.sidebar.radio("Navigasi", [
+    "Manajemen Data", "Scan QR", "Log Aktivitas", "Consumer View"
+])
 
-# Default menu
-default_menu = "Tambah Data"
+# ===================== MANAJEMEN DATA =====================
+if menu == "Manajemen Data":
+    st.title("📦 Manajemen Data Produksi")
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "➕ Tambah",
+        "📋 Lihat",
+        "✏️ Edit",
+        "🗑️ Hapus",
+        "💾 Backup & Restore"
+    ])
 
-# Jika URL mengandung menu= atau batch_id=, arahkan otomatis
-if "menu" in query_params:
-    requested_menu = query_params["menu"]
-    if requested_menu in available_menus:
-        default_menu = requested_menu
-elif "batch_id" in query_params:
-    default_menu = "Consumer View"
+    # ---------- Tambah ----------
+    with tab1:
+        st.subheader("Tambah Data Produksi")
+        with st.form("form_tambah"):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                batch_id = st.text_input("Batch ID").upper().strip()
+                tanggal = st.date_input("Tanggal Produksi", datetime.now(WIB))
+                pic = st.text_input("PIC")
+            with col2:
+                tempat = st.text_input("Tempat Produksi")
+                varian = st.text_input("Varian Produk")
+            with col3:
+                gudang = st.text_input("Lokasi Gudang")
+                expired = st.date_input("Kedaluwarsa", datetime.now(WIB)+timedelta(days=180))
 
-# Sidebar navigation
-menu = st.sidebar.radio("Navigasi", available_menus, index=available_menus.index(default_menu))
+            submit = st.form_submit_button("Simpan & Buat QR")
 
-# ---------- TAMBAH DATA ----------
-if menu == "Tambah Data":
-    st.title("Tambah Data Produksi")
-    with st.form("form_produksi"):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            batch_id = st.text_input("Batch ID").strip().upper()
-            tanggal = st.date_input("Tanggal Produksi", datetime.now(WIB))
-            pic = st.text_input("Nama PIC")
-        with col2:
-            tempat = st.text_input("Tempat Produksi")
-            varian = st.text_input("Varian Produksi")
-        with col3:
-            lokasi_gudang = st.text_input("Lokasi Gudang")
-            expired_date = st.date_input("Tanggal Kedaluwarsa", datetime.now(WIB) + timedelta(days=180))
+        if submit and batch_id:
+            qr, link = tambah_data(batch_id, str(tanggal), pic, tempat, varian, gudang, str(expired))
+            if qr:
+                st.success("Data tersimpan.")
+                st.image(qr, width=200)
+                st.markdown(f"[Lihat Consumer View]({link})")
 
-        submitted = st.form_submit_button("Simpan Data dan Buat QR Code")
+    # ---------- Lihat ----------
+    with tab2:
+        st.subheader("Data Produksi")
+        df = pd.read_sql_query("SELECT * FROM produksi ORDER BY id DESC", conn)
+        if not df.empty:
+            st.dataframe(df)
+            st.download_button("📄 Ekspor CSV", df.to_csv(index=False).encode(), "produksi.csv")
 
-        if submitted:
-            # === VALIDASI DASAR ===
-            if not all([batch_id, tanggal, pic, tempat, varian, lokasi_gudang, expired_date]):
-                st.warning("⚠️ Harap isi semua kolom dengan lengkap.")
-            elif expired_date <= tanggal:
-                st.error("❌ Tanggal kedaluwarsa harus setelah tanggal produksi.")
-            else:
-                # === CEK DUPLIKASI batch_id ===
-                cursor.execute("SELECT COUNT(*) FROM produksi WHERE batch_id=?", (batch_id,))
-                sudah_ada = cursor.fetchone()[0]
-                if sudah_ada > 0:
-                    st.warning(f"⚠️ Batch ID '{batch_id}' sudah terdaftar. Gunakan ID lain.")
-                else:
-                    # === PROSES PENYIMPANAN DATA ===
-                    with st.spinner("📦 Menyimpan data dan membuat QR code..."):
-                        try:
-                            time.sleep(1)
-                            qr_path, link = tambah_data(
-                                batch_id, str(tanggal), pic, tempat, varian, lokasi_gudang, str(expired_date)
-                            )
-                            st.success("✅ Data berhasil disimpan dan QR Code dibuat.")
-                            st.image(qr_path, caption=f"QR Code Batch {batch_id}", width=200)
-                            st.markdown(f"[🔗 Lihat Consumer View]({link})")
-                            st.toast(f"Data batch {batch_id} berhasil ditambahkan.", icon="✅")
+            pilih = st.selectbox("Ekspor PDF Batch", df["batch_id"].tolist())
+            if st.button("Ekspor PDF"):
+                pdf = export_pdf(pilih)
+                if pdf:
+                    st.download_button("Download PDF", open(pdf, "rb"), f"{pilih}.pdf")
+        else:
+            st.info("Tidak ada data.")
 
-                            # === BACKUP OTOMATIS KE GITHUB ===
-                            with st.spinner("💾 Melakukan backup otomatis ke GitHub..."):
-                                try:
-                                    backup_database()
-                                except Exception as e:
-                                    st.error(f"Gagal melakukan backup otomatis: {e}")
-                        except Exception as e:
-                            st.error(f"Terjadi kesalahan saat menyimpan data: {e}")
+    # ---------- Edit ----------
+    with tab3:
+        st.subheader("Edit Data")
+        df = pd.read_sql_query("SELECT * FROM produksi", conn)
+        if not df.empty:
+            pilih = st.selectbox("Pilih Batch", df["batch_id"].tolist())
+            data = get_batch(pilih)
+            if data is not None:
+                info = data.iloc[0]
 
-# ---------- LIHAT DATA ----------
-elif menu == "Lihat Data":
-    st.subheader("📋 Daftar Data Produksi")
-    df = pd.read_sql_query("SELECT * FROM produksi ORDER BY id DESC", conn)
+                tempat = st.text_input("Tempat", info["tempat_produksi"])
+                varian = st.text_input("Varian", info["varian_produksi"])
+                gudang = st.text_input("Gudang", info["lokasi_gudang"])
+                expired = st.date_input("Expired", datetime.strptime(info["expired_date"], "%Y-%m-%d"))
 
-    if not df.empty:
-        # ==== TAMPILKAN DATA ====
-        df["QR_Code"] = df["batch_id"].apply(
-            lambda x: f'<img src="data:image/png;base64,{base64.b64encode(open(QR_DIR / f"{x}.png","rb").read()).decode()}" width="70">'
-            if (QR_DIR / f"{x}.png").exists() else "❌"
-        )
-        df["Status"] = df["expired_date"].apply(status_expired)
-        df_display = df[[
-            "timestamp", "batch_id", "tanggal", "pic", "tempat_produksi",
-            "varian_produksi", "lokasi_gudang", "expired_date", "Status", "updated_at", "QR_Code"
-        ]]
-        df_display.columns = [
-            "Timestamp", "Batch ID", "Tanggal", "PIC", "Tempat", "Varian",
-            "Gudang", "Kedaluwarsa", "Status", "Last Updated", "QR Code"
-        ]
+                if st.button("Simpan Perubahan"):
+                    cursor.execute("""
+                        UPDATE produksi SET tempat_produksi=?, varian_produksi=?, lokasi_gudang=?, expired_date=?, updated_at=?
+                        WHERE batch_id=?
+                    """, (tempat, varian, gudang, str(expired), now_wib(), pilih))
+                    conn.commit()
+                    st.success("Data diperbarui.")
+        else:
+            st.info("Tidak ada data.")
 
-        st.markdown(df_display.to_html(escape=False, index=False), unsafe_allow_html=True)
-        st.download_button("📦 Ekspor ke CSV", df.to_csv(index=False).encode("utf-8"),
-                           "data_produksi.csv", "text/csv")
+    # ---------- Hapus ----------
+    with tab4:
+        st.subheader("Hapus Data")
+        df = pd.read_sql_query("SELECT * FROM produksi", conn)
+        if not df.empty:
+            pilih = st.selectbox("Pilih Batch", df["batch_id"].tolist())
+            if st.button("Hapus"):
+                cursor.execute("DELETE FROM produksi WHERE batch_id=?", (pilih,))
+                conn.commit()
 
-        selected_pdf = st.selectbox("Pilih Batch untuk Ekspor PDF", df["batch_id"].tolist())
-        if st.button("📄 Ekspor ke PDF"):
-            pdf_path = export_pdf(selected_pdf)
-            if pdf_path and pdf_path.exists():
-                with open(pdf_path, "rb") as f:
-                    st.download_button(
-                        label=f"⬇️ Unduh Laporan {selected_pdf}.pdf",
-                        data=f,
-                        file_name=f"{selected_pdf}.pdf",
-                        mime="application/pdf"
-                    )
+                p = QR_DIR / f"{pilih}.png"
+                if p.exists(): p.unlink()
 
-        # ==== MENU BACKUP & RESTORE ====
-        st.markdown("---")
-        st.subheader("💾 Backup & Restore Data")
+                st.warning(f"Batch {pilih} dihapus.")
+                log_activity(f"Hapus batch {pilih}")
+        else:
+            st.info("Tidak ada data.")
 
-        col1, col2 = st.columns(2)
+    # ---------- Backup & Restore ----------
+    with tab5:
+        st.subheader("Backup & Restore")
 
-        # ==== BACKUP MANUAL ====
-        with col1:
-            st.info("Backup akan menyimpan data terbaru dan QR Code ke GitHub (folder `backup/`).")
-            if st.button("🚀 Backup Manual Sekarang"):
-                with st.spinner("Mengunggah backup ke GitHub..."):
-                    try:
-                        backup_database()
-                    except Exception as e:
-                        st.error(f"Gagal melakukan backup manual: {e}")
+        if st.button("Backup Sekarang"):
+            df = pd.read_sql_query("SELECT * FROM produksi", conn)
+            csv_bytes = df.to_csv(index=False).encode()
+            stamp = datetime.now(WIB).strftime('%Y%m%d_%H%M')
+            name = f"backup_{stamp}.csv"
+            backup_to_github(name, csv_bytes, "Backup manual")
 
-        # ==== RESTORE OTOMATIS DENGAN DROPDOWN ====
-        with col2:
-            st.info("Restore akan mengembalikan database dari file backup yang tersimpan di GitHub.")
+        GITHUB_USER = "frozeno24"
+        GITHUB_REPO = "harlur-traceability-qr"
+        TOKEN = st.secrets.get("GITHUB_TOKEN")
+        headers = {"Authorization": f"token {TOKEN}"}
 
-            GITHUB_USER = "frozeno24"      # Ganti dengan username GitHub kamu
-            GITHUB_REPO = "harlur-traceability-qr"          # Ganti dengan nama repo GitHub kamu
-            TOKEN = st.secrets["GITHUB_TOKEN"]
+        api = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/backup"
+        files = []
 
-            headers = {"Authorization": f"token {TOKEN}"}
-            api_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/backup"
+        try:
+            r = requests.get(api, headers=headers)
+            if r.status_code == 200:
+                for f in r.json():
+                    if f["name"].endswith(".csv"):
+                        files.append(f["name"])
+        except:
+            pass
 
-            csv_files, zip_files = [], []
-            with st.spinner("📂 Mengambil daftar file backup dari GitHub..."):
-                try:
-                    res = requests.get(api_url, headers=headers)
-                    if res.status_code == 200:
-                        for file in res.json():
-                            if file["name"].endswith(".csv"):
-                                csv_files.append(file["name"])
-                            elif file["name"].endswith(".zip"):
-                                zip_files.append(file["name"])
-                    else:
-                        st.error(f"Gagal memuat daftar file backup (Status: {res.status_code})")
-                except Exception as e:
-                    st.error(f"Terjadi kesalahan saat mengakses GitHub API: {e}")
+        if files:
+            pilih = st.selectbox("Pilih Backup", sorted(files, reverse=True))
+            if st.button("Restore Backup"):
+                restore_from_github(pilih)
+        else:
+            st.info("Tidak ada file backup.")
 
-            if csv_files and zip_files:
-                selected_csv = st.selectbox("📄 Pilih File CSV Backup", sorted(csv_files, reverse=True))
-                selected_zip = st.selectbox("🗂️ Pilih File ZIP QR", sorted(zip_files, reverse=True))
-
-                if st.button("🔄 Jalankan Restore dari GitHub"):
-                    with st.spinner("Mengunduh dan memulihkan data dari GitHub..."):
-                        try:
-                            restore_from_github(selected_csv, selected_zip)
-                        except Exception as e:
-                            st.error(f"Gagal melakukan restore: {e}")
-            else:
-                st.warning("⚠️ Tidak ditemukan file backup di GitHub. Pastikan folder `backup/` sudah berisi file hasil backup.")
-
-    else:
-        st.info("Belum ada data produksi.")
-
-# ---------- SCAN QR ----------
+# ===================== SCAN QR =====================
 elif menu == "Scan QR":
-    st.subheader("📸 Scan QR Code Realtime atau Upload Gambar")
+    st.title("Scan QR Code")
+    mode = st.radio("Metode Scan", ["Kamera", "Upload Gambar"])
 
-    # Pilihan metode scan
-    metode = st.radio("Pilih Metode Pemindaian", ["Kamera", "Upload Gambar"])
-
-    # --- OPSI 1: SCAN DARI KAMERA ---
-    if metode == "Kamera":
-        class QRScanner(VideoProcessorBase):
-            def __init__(self): self.qr_result = None
+    if mode == "Kamera":
+        class QRScan(VideoProcessorBase):
+            def __init__(self): self.qr = None
             def recv(self, frame):
                 img = frame.to_ndarray(format="bgr24")
-                data, _, _ = cv2.QRCodeDetector().detectAndDecode(img)
-                if data: self.qr_result = data
+                data,_,_ = cv2.QRCodeDetector().detectAndDecode(img)
+                if data: self.qr = data
                 return frame
 
-        ctx = webrtc_streamer(
-            key="scanner",
-            mode=WebRtcMode.SENDRECV,
-            video_processor_factory=QRScanner,
-            media_stream_constraints={"video": True, "audio": False}
-        )
+        ctx = webrtc_streamer(key="scan", mode=WebRtcMode.SENDRECV,
+                              video_processor_factory=QRScan,
+                              media_stream_constraints={"video":True,"audio":False})
 
-        if ctx.video_processor and ctx.video_processor.qr_result:
-            st.success(f"QR Code Terbaca: {ctx.video_processor.qr_result}")
-            st.markdown(f"[🔗 Buka Tautan]({ctx.video_processor.qr_result})")
+        if ctx.video_processor and ctx.video_processor.qr:
+            st.success(ctx.video_processor.qr)
+            st.markdown(f"[Buka Tautan]({ctx.video_processor.qr})")
 
-    # --- OPSI 2: UPLOAD GAMBAR QR ---
     else:
-        uploaded_qr = st.file_uploader("Unggah Gambar QR (PNG/JPG)", type=["png", "jpg", "jpeg"])
-        if uploaded_qr:
-            img = Image.open(uploaded_qr)
-            img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-            data, _, _ = cv2.QRCodeDetector().detectAndDecode(img_cv)
-
+        up = st.file_uploader("Unggah gambar", ["png","jpg","jpeg"])
+        if up:
+            img = Image.open(up)
+            cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+            data,_,_ = cv2.QRCodeDetector().detectAndDecode(cv)
             if data:
-                st.image(img, caption="QR Terdeteksi", width=200)
-                st.success(f"QR Code Terbaca: {data}")
-                st.markdown(f"[🔗 Buka Tautan]({data})")
+                st.success(data)
+                st.markdown(f"[Buka Tautan]({data})")
             else:
-                st.warning("⚠️ QR tidak dapat dibaca dari gambar ini.")
+                st.error("QR tidak terbaca.")
 
-# ---------- EDIT / HAPUS ----------
-elif menu == "Edit / Hapus Data":
-    st.subheader("✏️ Edit atau Hapus Data Produksi")
-    df = pd.read_sql_query("SELECT * FROM produksi", conn)
-    if not df.empty:
-        selected = st.selectbox("Pilih Batch ID", df["batch_id"].tolist())
-        data = get_batch(selected)
-        if data is not None:
-            info = data.iloc[0]
-            tempat = st.text_input("Tempat Produksi", info["tempat_produksi"])
-            varian = st.text_input("Varian Produksi", info["varian_produksi"])
-            gudang = st.text_input("Lokasi Gudang", info["lokasi_gudang"])
-            expired = st.date_input("Tanggal Kedaluwarsa", datetime.strptime(info["expired_date"], "%Y-%m-%d"))
-            colA, colB = st.columns(2)
-            with colA:
-                if st.button("💾 Simpan Perubahan"):
-                    cursor.execute("""
-                        UPDATE produksi
-                        SET tempat_produksi=?, varian_produksi=?, lokasi_gudang=?, expired_date=?, updated_at=?
-                        WHERE batch_id=?
-                    """, (tempat, varian, gudang, str(expired), now_wib(), selected))
-                    conn.commit()
-                    log_activity(f"Edit data batch {selected}")
-                    st.success("Data berhasil diperbarui.")
-            with colB:
-                if st.button("🗑️ Hapus Data"):
-                    delete_batch(selected)
-                    st.warning(f"Data batch {selected} telah dihapus.")
-    else:
-        st.info("Belum ada data untuk diedit.")
-
-# ---------- LOG ----------
+# ===================== LOG AKTIVITAS =====================
 elif menu == "Log Aktivitas":
-    st.subheader("🕒 Riwayat Aktivitas Sistem")
+    st.title("Log Aktivitas")
     logs = pd.read_sql_query("SELECT * FROM log_aktivitas ORDER BY id DESC", conn)
-    if not logs.empty:
-        st.dataframe(logs)
-    else:
-        st.info("Belum ada aktivitas.")
+    st.dataframe(logs)
 
-# ---------- CONSUMER VIEW ----------
+# ===================== CONSUMER VIEW =====================
 elif menu == "Consumer View":
-    st.subheader("Informasi Produk Harlur Coffee")
-    params = st.query_params
-    if "batch_id" in params:
-        batch_id = params["batch_id"]
-        data = get_batch(batch_id)
-        if data is not None:
-            info = data.iloc[0]
-            if LOGO_PATH.exists():
-                st.image(str(LOGO_PATH), width=150)
-            st.write(f"### Varian: {info['varian_produksi']}")
-            st.write(f"📅 Tanggal Produksi: {info['tanggal']}")
-            st.write(f"🏭 Tempat Produksi: {info['tempat_produksi']}")
-            st.write(f"📦 Lokasi Gudang: {info['lokasi_gudang']}")
-            st.write(f"⏳ Kedaluwarsa: {info['expired_date']}")
-            st.markdown(status_expired(info['expired_date']), unsafe_allow_html=True)
-            st.write(f"👤 PIC: {info['pic']}")
-            st.markdown("---")
-            st.info("Terima kasih telah memilih Harlur Coffee!")
-        else:
-            st.error("Data batch tidak ditemukan.")
+    st.title("🔍 Informasi Produk Harlur Coffee")
+
+    batch_id = st.query_params.get("batch_id", [""])[0]
+
+    if not batch_id:
+        st.warning("QR tidak berisi batch ID atau format URL tidak valid.")
+        st.stop()
+
+    df = pd.read_sql_query("SELECT * FROM produksi WHERE batch_id=?", conn, params=(batch_id,))
+    if df.empty:
+        st.error("Batch ID tidak ditemukan.")
+        st.stop()
+
+    data = df.iloc[0]
+    varian = data["varian_produksi"].lower()
+
+    # =========================
+    # NARASI VARIAN
+    # =========================
+    VARIAN_DESKRIPSI = {
+        "coklat": "Bubuk coklat premium dengan rasa rich dan creamy.",
+        "matcha": "Matcha hijau berkualitas dengan aroma natural dan lembut.",
+        "kopi gula aren": "Espresso dengan gula aren asli, manis alami & beraroma kompleks.",
+        "thai tea": "Teh Thailand klasik dengan rempah lembut dan creamy finish."
+    }
+
+    ASAL_BAHAN = {
+        "coklat": "Kakao lokal dari Jawa Timur.",
+        "matcha": "Serbuk matcha impor dari Jepang.",
+        "kopi gula aren": "Kopi arabika Malabar + Gula aren Garut.",
+        "thai tea": "Daun teh Thailand dengan proses CTC."
+    }
+
+    TASTE_NOTES = {
+        "coklat": {"Sweetness": 4, "Aroma": 2, "Body": 4},
+        "matcha": {"Sweetness": 3, "Aroma": 3, "Body": 2},
+        "kopi gula aren": {"Sweetness": 4, "Aroma": 5, "Body": 4},
+        "thai tea": {"Sweetness": 4, "Aroma": 3, "Body": 3}
+    }
+
+    SERVING = {
+        "coklat": "Cocok panas atau dingin. Ideal 60–70°C jika disajikan hangat.",
+        "matcha": "Paling nikmat disajikan dengan es dan susu.",
+        "kopi gula aren": "Sajikan dingin (0–4°C) untuk rasa terbaik.",
+        "thai tea": "Sajikan dengan es; aroma teh lebih kuat saat dingin."
+    }
+
+    # FALLBACK
+    deskripsi = VARIAN_DESKRIPSI.get(varian, "Varian dengan standar kualitas Harlur Coffee.")
+    asal = ASAL_BAHAN.get(varian, "Bahan baku berasal dari distributor tersertifikasi.")
+    taste = TASTE_NOTES.get(varian, {"Sweetness": 3, "Aroma": 3, "Body": 3})
+    serving = SERVING.get(varian, "Dapat dinikmati panas atau dingin.")
+
+    # =========================
+    # FRESHNESS BADGE
+    # =========================
+    days_left = (pd.to_datetime(data["expired_date"]) - datetime.now()).days
+    if days_left < 0:
+        badge = "🔴 **Expired**"
+    elif days_left <= 30:
+        badge = "🟡 **Near Expired**"
     else:
-        st.info("Scan QR Code pada kemasan untuk melihat informasi produk.")
+        badge = "🟢 **Fresh**"
+
+    # =========================
+    # CARD STYLE
+    # =========================
+    st.markdown(f"""
+    <div style="
+        padding: 20px;
+        border-radius: 15px;
+        border: 1px solid rgba(0,0,0,0.1);
+        backdrop-filter: blur(5px);
+    ">
+        <h2 style="margin-bottom:0;">{data['varian_produksi']}</h2>
+        <p style="margin-top:5px;"><b>Batch:</b> {batch_id} | {badge}</p>
+
+        <h4>🌱 Asal Bahan</h4>
+        <p>{asal}</p>
+
+        <h4>🍹 Deskripsi Varian</h4>
+        <p>{deskripsi}</p>
+
+        <h4>🎯 Taste Notes</h4>
+        <p>Sweetness: {"●" * taste["Sweetness"] + "○" * (5 - taste["Sweetness"])}<br>
+           Aroma: {"●" * taste["Aroma"] + "○" * (5 - taste["Aroma"])}<br>
+           Body: {"●" * taste["Body"] + "○" * (5 - taste["Body"])}
+        </p>
+
+        <h4>🧃 Serving Suggestion</h4>
+        <p>{serving}</p>
+
+        <h4>🏭 Detail Produksi</h4>
+        <p>
+            Tempat: {data['tempat_produksi']}<br>
+            PIC: {data['pic']}<br>
+            Gudang: {data['lokasi_gudang']}
+        </p>
+
+        <h4>🔐 Keaslian</h4>
+        <p>QR diverifikasi dari database resmi Harlur Coffee.</p>
+    </div>
+    """, unsafe_allow_html=True)
