@@ -531,24 +531,21 @@ elif menu == "Consumer View":
     if qr_path.exists():
         qr_base64 = base64.b64encode(open(qr_path, "rb").read()).decode()
 
-    if qr_base64:
-        qr_html = f"<img src='data:image/png;base64,{qr_base64}' width='160' style='margin-top:10px;'>"
-    
-    else:
-        qr_html = "<i>QR tidak ditemukan</i>"
+    qr_html = (
+        f"<img src='data:image/png;base64,{qr_base64}' width='160' style='margin-top:10px;'>"
+        if qr_base64 else "<i>QR tidak ditemukan</i>"
+    )
 
-# ========== CARD UI ==========
+    # ========== CARD UI ==========
 
-# Helper heading style
-def h4(text):
-    return f"<div style='font-weight:600; font-size:18px; margin-top:18px;'>{text}</div>"
+    def h4(text):
+        return f"<div style='font-weight:600; font-size:18px; margin-top:18px;'>{text}</div>"
 
-# Precompute taste strings
-taste_sweet = "●" * taste["Sweetness"] + "○" * (5 - taste["Sweetness"])
-taste_aroma = "●" * taste["Aroma"] + "○" * (5 - taste["Aroma"])
-taste_body  = "●" * taste["Body"]  + "○" * (5 - taste["Body"])
+    taste_sweet = "●" * taste["Sweetness"] + "○" * (5 - taste["Sweetness"])
+    taste_aroma = "●" * taste["Aroma"] + "○" * (5 - taste["Aroma"])
+    taste_body  = "●" * taste["Body"]  + "○" * (5 - taste["Body"])
 
-st.markdown(f"""
+    st.markdown(f"""
 <div style="
     padding: 22px;
     border-radius: 16px;
