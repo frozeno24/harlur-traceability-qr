@@ -29,6 +29,7 @@ import requests
 import time
 import zipfile
 import io
+import textwrap
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
@@ -537,6 +538,7 @@ elif menu == "Consumer View":
     )
 
     # ========== CARD UI ==========
+# ========== CARD UI ==========
     def h4(text):
         return f"<div style='font-weight:600; font-size:18px; margin-top:18px;'>{text}</div>"
 
@@ -544,57 +546,57 @@ elif menu == "Consumer View":
     taste_aroma = "●" * taste["Aroma"] + "○" * (5 - taste["Aroma"])
     taste_body  = "●" * taste["Body"]  + "○" * (5 - taste["Body"])
 
-    html_card = f"""
-<div style="
-    padding: 22px;
-    border-radius: 16px;
-    border: 1px solid rgba(0,0,0,0.12);
-    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-    background: rgba(255,255,255,0.65);
-    backdrop-filter: blur(6px);
-">
+    # PERBAIKAN DI SINI: Gunakan textwrap.dedent
+    html_card = textwrap.dedent(f"""
+    <div style="
+        padding: 22px;
+        border-radius: 16px;
+        border: 1px solid rgba(0,0,0,0.12);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        background: rgba(255,255,255,0.65);
+        backdrop-filter: blur(6px);
+    ">
 
-    <div style="font-size:26px; font-weight:700; margin-bottom:4px;">
-        {data['varian_produksi']}
+        <div style="font-size:26px; font-weight:700; margin-bottom:4px;">
+            {data['varian_produksi']}
+        </div>
+
+        <div style="margin-bottom:12px; opacity:0.9;">
+            <b>Batch:</b> {batch_id} &nbsp; | &nbsp; {badge}
+        </div>
+
+        {h4("📌 QR Code")}
+        <div style="margin-top:8px; margin-bottom:18px;">{qr_html}</div>
+
+        {h4("🌱 Asal Bahan")}
+        <div style="margin-top:6px;">{asal}</div>
+
+        {h4("🍹 Deskripsi Varian")}
+        <div style="margin-top:6px;">{deskripsi}</div>
+
+        {h4("🎯 Taste Notes")}
+        <div style="margin-top:6px;">
+            Sweetness: {taste_sweet}<br>
+            Aroma: {taste_aroma}<br>
+            Body: {taste_body}
+        </div>
+
+        {h4("🧃 Serving Suggestion")}
+        <div style="margin-top:6px;">{serving}</div>
+
+        {h4("🏭 Detail Produksi")}
+        <div style="margin-top:6px;">
+            Tempat: {data['tempat_produksi']}<br>
+            PIC: {data['pic']}<br>
+            Gudang: {data['lokasi_gudang']}
+        </div>
+
+        {h4("🔐 Keaslian")}
+        <div style="margin-top:6px;">
+            QR diverifikasi dari database resmi Harlur Coffee.
+        </div>
+
     </div>
-
-    <div style="margin-bottom:12px; opacity:0.9;">
-        <b>Batch:</b> {batch_id} &nbsp; | &nbsp; {badge}
-    </div>
-
-    {h4("📌 QR Code")}
-    <div style="margin-top:8px; margin-bottom:18px;">{qr_html}</div>
-
-    {h4("🌱 Asal Bahan")}
-    <div style="margin-top:6px;">{asal}</div>
-
-    {h4("🍹 Deskripsi Varian")}
-    <div style="margin-top:6px;">{deskripsi}</div>
-
-    {h4("🎯 Taste Notes")}
-    <div style="margin-top:6px;">
-        Sweetness: {taste_sweet}<br>
-        Aroma: {taste_aroma}<br>
-        Body: {taste_body}
-    </div>
-
-    {h4("🧃 Serving Suggestion")}
-    <div style="margin-top:6px;">{serving}</div>
-
-    {h4("🏭 Detail Produksi")}
-    <div style="margin-top:6px;">
-        Tempat: {data['tempat_produksi']}<br>
-        PIC: {data['pic']}<br>
-        Gudang: {data['lokasi_gudang']}
-    </div>
-
-    {h4("🔐 Keaslian")}
-    <div style="margin-top:6px;">
-        QR diverifikasi dari database resmi Harlur Coffee.
-    </div>
-
-</div>
-"""
+    """) # Pastikan ditutup kurung dedent
 
     st.markdown(html_card, unsafe_allow_html=True)
-
