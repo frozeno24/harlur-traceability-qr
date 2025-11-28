@@ -518,5 +518,3 @@ elif menu == "Consumer View":
         {"<img src='data:image/png;base64," + qr_base64 + "' width='160'>" if qr_base64 else "<i>Tidak ada QR tersimpan</i>"}
     </div>
     """, unsafe_allow_html=True)
-
-
