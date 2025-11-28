@@ -115,8 +115,12 @@ def tambah_data(batch_id, tanggal, pic, tempat, varian, gudang, expired):
     conn.commit()
     log_activity(f"Tambah data {batch_id}")
 
+    params = st.query_params
+    if "batch_id" in params:
+        menu = "Consumer View"
+
     # Generate QR
-    link = f"https://harlur-traceability.streamlit.app/?menu=Consumer%20View&batch_id={batch_id}"
+    link = f"https://harlur-traceability.streamlit.app/?batch_id={batch_id}"
     qr = qrcode.QRCode(box_size=10, border=2)
     qr.add_data(link)
     qr.make(fit=True)
@@ -415,7 +419,9 @@ elif menu == "Consumer View":
     st.title("🔍 Informasi Produk Harlur Coffee")
 
     # AUTO ROUTE FROM QR
-    batch_id = st.query_params.get("batch_id", [""])[0]
+    params = st.query_params
+    batch_id = params.get("batch_id", "")
+
     if not batch_id:
         st.warning("QR tidak berisi batch ID atau format URL tidak valid.")
         st.stop()
@@ -476,45 +482,50 @@ elif menu == "Consumer View":
     if qr_path.exists():
         qr_base64 = base64.b64encode(open(qr_path, "rb").read()).decode()
 
+    if qr_base64:
+        qr_html = f"<img src='data:image/png;base64,{qr_base64}' width='160' style='margin-top:10px;'>"
+    
+    else:
+        qr_html = "<i>QR tidak ditemukan</i>"
+
+
     # ========== CARD UI ==========
     st.markdown(f"""
-    <div style="
-        padding: 25px;
-        border-radius: 18px;
-        border: 1px solid rgba(0,0,0,0.15);
-        background: rgba(255,255,255,0.65);
-        box-shadow: 0 8px 25px rgba(0,0,0,0.08);
-    ">
-        <h2 style="margin-bottom:5px; color:#5A4231;">{data['varian_produksi']}</h2>
-        <p><b>Batch:</b> {batch_id} | {badge}</p>
+<div style="
+    padding: 20px;
+    border-radius: 15px;
+    border: 1px solid rgba(0,0,0,0.1);
+    backdrop-filter: blur(5px);
+">
+    <h2 style="margin-bottom:0;">{data['varian_produksi']}</h2>
+    <p style="margin-top:5px;"><b>Batch:</b> {batch_id} | {badge}</p>
 
-        <h4>🌱 Asal Bahan</h4>
-        <p>{asal}</p>
+    <h4>📌 QR Code</h4>
+    <div>{qr_html}</div>
 
-        <h4>🍹 Deskripsi Varian</h4>
-        <p>{deskripsi}</p>
+    <h4>🌱 Asal Bahan</h4>
+    <p>{asal}</p>
 
-        <h4>🎯 Taste Notes</h4>
-        <p>
-            Sweetness: {"●"*taste["Sweetness"]+"○"*(5-taste["Sweetness"])}<br>
-            Aroma: {"●"*taste["Aroma"]+"○"*(5-taste["Aroma"])}<br>
-            Body: {"●"*taste["Body"]+"○"*(5-taste["Body"])}
-        </p>
+    <h4>🍹 Deskripsi Varian</h4>
+    <p>{deskripsi}</p>
 
-        <h4>🧃 Serving Suggestion</h4>
-        <p>{serving}</p>
+    <h4>🎯 Taste Notes</h4>
+    <p>Sweetness: {"●" * taste["Sweetness"] + "○" * (5 - taste["Sweetness"])}<br>
+       Aroma: {"●" * taste["Aroma"] + "○" * (5 - taste["Aroma"])}<br>
+       Body: {"●" * taste["Body"] + "○" * (5 - taste["Body"])}
+    </p>
 
-        <h4>🏭 Detail Produksi</h4>
-        <p>
-            Tempat: {data['tempat_produksi']}<br>
-            PIC: {data['pic']}<br>
-            Gudang: {data['lokasi_gudang']}
-        </p>
+    <h4>🧃 Serving Suggestion</h4>
+    <p>{serving}</p>
 
-        <h4>🔐 Keaslian & Keamanan</h4>
-        <p>Data ini diverifikasi langsung dari database resmi Harlur Coffee.</p>
+    <h4>🏭 Detail Produksi</h4>
+    <p>
+        Tempat: {data['tempat_produksi']}<br>
+        PIC: {data['pic']}<br>
+        Gudang: {data['lokasi_gudang']}
+    </p>
 
-        <h4>📌 QR Code</h4>
-        {"<img src='data:image/png;base64," + qr_base64 + "' width='160'>" if qr_base64 else "<i>Tidak ada QR tersimpan</i>"}
-    </div>
-    """, unsafe_allow_html=True)
+    <h4>🔐 Keaslian</h4>
+    <p>QR diverifikasi dari database resmi Harlur Coffee.</p>
+</div>
+""", unsafe_allow_html=True)
