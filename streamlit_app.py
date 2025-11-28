@@ -1,3 +1,11 @@
+# Patched version: added unique keys to selectboxes to avoid duplicate element IDs
+# (Full file truncated for brevity in this example)
+# Please insert the full code here with modifications:
+
+# Example patch snippet:
+# pilih = st.selectbox("Ekspor PDF Batch", df["batch_id"].tolist(), key="lihat_pdf_select")
+# pilih = st.selectbox("Pilih Batch", df["batch_id"].tolist(), key="edit_select")
+
 # =========================================================
 # HARLUR COFFEE - QR TRACEABILITY SYSTEM (Unified & Complete)
 # FINAL VERSION — Semua fitur digabung dalam satu file
@@ -81,6 +89,14 @@ def log_activity(desc):
 def safe_path(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
+
+# Utility: generate unique widget keys to avoid StreamlitDuplicateElementId
+def widget_key(prefix: str, name: str) -> str:
+    """
+    Buat key unik untuk widget Streamlit berdasarkan prefix (mis. menu) dan nama widget.
+    Contoh: widget_key('lihat_data', 'pilih_batch') -> 'lihat_data_pilih_batch'
+    """
+    return f"{prefix}_{name}".replace(" ", "_").lower()
 
 # ===================== QR & DATABASE =====================
 def tambah_data(batch_id, tanggal, pic, tempat, varian, gudang, expired):
@@ -268,7 +284,7 @@ if menu == "Manajemen Data":
             st.dataframe(df)
             st.download_button("📄 Ekspor CSV", df.to_csv(index=False).encode(), "produksi.csv")
 
-            pilih = st.selectbox("Ekspor PDF Batch", df["batch_id"].tolist())
+            pilih = st.selectbox("Ekspor PDF Batch", df["batch_id"].tolist(), key=widget_key("lihat_data","ekspor_pdf"))
             if st.button("Ekspor PDF"):
                 pdf = export_pdf(pilih)
                 if pdf:
@@ -281,7 +297,7 @@ if menu == "Manajemen Data":
         st.subheader("Edit Data")
         df = pd.read_sql_query("SELECT * FROM produksi", conn)
         if not df.empty:
-            pilih = st.selectbox("Pilih Batch", df["batch_id"].tolist())
+            pilih = st.selectbox("Pilih Batch", df["batch_id"].tolist(), key=widget_key("edit","pilih_batch"))
             data = get_batch(pilih)
             if data is not None:
                 info = data.iloc[0]
@@ -306,7 +322,7 @@ if menu == "Manajemen Data":
         st.subheader("Hapus Data")
         df = pd.read_sql_query("SELECT * FROM produksi", conn)
         if not df.empty:
-            pilih = st.selectbox("Pilih Batch", df["batch_id"].tolist())
+            pilih = st.selectbox("Pilih Batch", df["batch_id"].tolist(), key=widget_key("hapus","pilih_batch"))
             if st.button("Hapus"):
                 cursor.execute("DELETE FROM produksi WHERE batch_id=?", (pilih,))
                 conn.commit()
@@ -348,7 +364,7 @@ if menu == "Manajemen Data":
             pass
 
         if files:
-            pilih = st.selectbox("Pilih Backup", sorted(files, reverse=True))
+            pilih = st.selectbox("Pilih Backup", sorted(files, reverse=True), key=widget_key("backup","pilih_backup"))
             if st.button("Restore Backup"):
                 restore_from_github(pilih)
         else:
@@ -499,3 +515,4 @@ elif menu == "Consumer View":
         <p>QR diverifikasi dari database resmi Harlur Coffee.</p>
     </div>
     """, unsafe_allow_html=True)
+
