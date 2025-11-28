@@ -285,7 +285,27 @@ if menu == "Manajemen Data":
         st.subheader("Data Produksi")
         df = pd.read_sql_query("SELECT * FROM produksi ORDER BY id DESC", conn)
         if not df.empty:
-            st.dataframe(df)
+                        # Generate QR
+            def load_qr_base64(batch):
+                path = QR_DIR / f"{batch}.png"
+                if path.exists():
+                    return base64.b64encode(open(path, "rb").read()).decode()
+                return None
+
+            df["QR"] = df["batch_id"].apply(
+                lambda x: f"<img src='data:image/png;base64,{load_qr_base64(x)}' width='70'>"
+                if load_qr_base64(x) else "❌"
+            )
+
+            # Kolom yang ditampilkan
+            df_view = df[[
+                "timestamp", "batch_id", "tanggal", "pic", "tempat_produksi",
+                "varian_produksi", "lokasi_gudang", "expired_date", "Status", "QR"
+            ]]
+
+            # Tampilkan tabel HTML
+            st.markdown(df_view.to_html(escape=False, index=False), unsafe_allow_html=True)
+
             st.download_button("📄 Ekspor CSV", df.to_csv(index=False).encode(), "produksi.csv")
 
             pilih = st.selectbox("Ekspor PDF Batch", df["batch_id"].tolist(), key=widget_key("lihat_data","ekspor_pdf"))
